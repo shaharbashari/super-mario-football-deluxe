@@ -65,5 +65,8 @@ An expanded, feature-packed arcade Kung-Foot sports brawler built as a loving de
 | **Wall-Slide & Wall-Jump** | Push into Wall + `W` | Push into Wall + `Up` | Push into Wall + `A` / `Cross` |
 | **Sky Uppercut Lob** | `G` or `W + F` | `Right Shift` or `Up + Enter` | `Y` / `Triangle` or `Up + X` |
 | **Quick Dash / Perfect Parry** | `Left Shift` or `Q` | `'` or `Right Ctrl` | `B` / `Circle` / `L1` |
-| **Use Stored Power-Up** | `H` or `E` | `\` or `/` | `R1` / `R2` |
-| **Pause / Mute** | `P` or `Esc` / `M` | — | — |
+| **Use Stored Power-Up** | `H` or `E` | `\` or `/` | `RB` / `RT` / `R3` |
+| **Dash / Parry** | `Left Shift` or `Q` | `Right Shift` or `.` | `B` / `LB` / `LT` / `L3` |
+| **Pause / Mute** | `P` or `Esc` / `M` | `Esc` | `Start` / `Back` |
+
+*(Player 3 also maps to `I J K L` + `U/O/P/N`; Player 4 maps to Numpad `8 4 5 6` + `7/9/+/Dec`. Up to 4 XInput controllers auto-assign to Slots 1–4).*
