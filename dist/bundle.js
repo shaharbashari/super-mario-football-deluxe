@@ -995,6 +995,7 @@ const DEFAULT_SETTINGS = {
   screenShake: 1.0,
   hitstop: true,
   goalSlowMo: true,
+  touchControls: 'auto',
   masterVolume: 0.8,
   musicVolume: 0.55,
   sfxVolume: 0.85,
@@ -1801,6 +1802,26 @@ class InputManager {
     this.rebindingCallback = null;
     this.connectedGamepads = 0;
 
+    // Mobile / Tablet Touch Controls State for P1
+    this.touchState = {
+      left: false,
+      right: false,
+      up: false,
+      down: false,
+      upPressed: false,
+      downPressed: false,
+      downReleased: false,
+      jumpPressed: false,
+      jumpReleased: false,
+      kickDown: false,
+      kickPressed: false,
+      kickReleased: false,
+      lobDown: false,
+      lobPressed: false,
+      dashPressed: false,
+      itemPressed: false,
+    };
+
     if (typeof window !== 'undefined') {
       window.addEventListener('keydown', (e) => {
         if (this.rebindingCallback) {
@@ -1854,6 +1875,91 @@ class InputManager {
     this.keysJustPressed.clear();
     this.keysJustReleased.clear();
     this._snapshotGamepads();
+
+    // Reset edge-triggered touch events
+    this.touchState.upPressed = false;
+    this.touchState.downPressed = false;
+    this.touchState.downReleased = false;
+    this.touchState.jumpPressed = false;
+    this.touchState.jumpReleased = false;
+    this.touchState.kickPressed = false;
+    this.touchState.kickReleased = false;
+    this.touchState.lobPressed = false;
+    this.touchState.dashPressed = false;
+    this.touchState.itemPressed = false;
+  }
+
+  setTouchDirection(dir, isDown) {
+    if (dir === 'left') this.touchState.left = isDown;
+    if (dir === 'right') this.touchState.right = isDown;
+    if (dir === 'up') {
+      if (isDown && !this.touchState.up) {
+        this.touchState.upPressed = true;
+        this.touchState.jumpPressed = true;
+      }
+      if (!isDown && this.touchState.up) {
+        this.touchState.jumpReleased = true;
+      }
+      this.touchState.up = isDown;
+    }
+    if (dir === 'down') {
+      if (isDown && !this.touchState.down) {
+        this.touchState.downPressed = true; // Air flick -> Ground Pound!
+      }
+      if (!isDown && this.touchState.down) {
+        this.touchState.downReleased = true;
+      }
+      this.touchState.down = isDown;
+    }
+  }
+
+  setTouchAction(action, isDown) {
+    if (action === 'jump') {
+      if (isDown && !this.touchState.up) {
+        this.touchState.jumpPressed = true;
+        this.touchState.upPressed = true;
+      }
+      if (!isDown && this.touchState.up) {
+        this.touchState.jumpReleased = true;
+      }
+      this.touchState.up = isDown;
+    } else if (action === 'strike') {
+      if (isDown && !this.touchState.kickDown) this.touchState.kickPressed = true;
+      if (!isDown && this.touchState.kickDown) this.touchState.kickReleased = true;
+      this.touchState.kickDown = isDown;
+    } else if (action === 'lob') {
+      if (isDown && !this.touchState.lobDown) this.touchState.lobPressed = true;
+      this.touchState.lobDown = isDown;
+    } else if (action === 'dash') {
+      if (isDown) this.touchState.dashPressed = true;
+    } else if (action === 'item') {
+      if (isDown) this.touchState.itemPressed = true;
+    }
+  }
+
+  setTouchVector(x, y) {
+    const deadzone = 0.22;
+    const prevDown = this.touchState.down;
+    const prevUp = this.touchState.up;
+
+    this.touchState.left = x < -deadzone;
+    this.touchState.right = x > deadzone;
+    this.touchState.up = y < -0.32;
+    this.touchState.down = y > 0.35;
+
+    if (this.touchState.up && !prevUp) {
+      this.touchState.upPressed = true;
+      this.touchState.jumpPressed = true;
+    }
+    if (!this.touchState.up && prevUp) {
+      this.touchState.jumpReleased = true;
+    }
+    if (this.touchState.down && !prevDown) {
+      this.touchState.downPressed = true;
+    }
+    if (!this.touchState.down && prevDown) {
+      this.touchState.downReleased = true;
+    }
   }
 
   _getGamepads() {
@@ -2062,6 +2168,26 @@ class InputManager {
       }
     }
 
+    // Merge Touch Controls for Player 1 (Mobile / Tablet / Touchscreen)
+    if (slotIndex === 0 && this.touchState) {
+      if (this.touchState.left) left = true;
+      if (this.touchState.right) right = true;
+      if (this.touchState.up) up = true;
+      if (this.touchState.down) down = true;
+      if (this.touchState.upPressed) upPressed = true;
+      if (this.touchState.downPressed) downPressed = true;
+      if (this.touchState.downReleased) downReleased = true;
+      if (this.touchState.jumpPressed) jumpPressed = true;
+      if (this.touchState.jumpReleased) jumpReleased = true;
+      if (this.touchState.kickDown) kickDown = true;
+      if (this.touchState.kickPressed) kickPressed = true;
+      if (this.touchState.kickReleased) kickReleased = true;
+      if (this.touchState.lobDown) lobDown = true;
+      if (this.touchState.lobPressed) lobPressed = true;
+      if (this.touchState.itemPressed) itemPressed = true;
+      if (this.touchState.dashPressed) dashPressed = true;
+    }
+
     return {
       left,
       right,
@@ -2080,6 +2206,284 @@ class InputManager {
       itemPressed,
       dashPressed,
     };
+  }
+}
+
+
+// === src/touch.js ===
+// Super Kick Kingdom — Mobile Device, Orientation & Touch Controls Manager
+// Handles mobile detection, rotate-to-landscape overlay, glassmorphic virtual controls & tactile touch input
+class TouchController {
+  constructor(inputManager, mainApp) {
+    this.input = inputManager;
+    this.app = mainApp;
+
+    const ua = typeof navigator !== 'undefined' ? (navigator.userAgent || '') : '';
+    const platform = typeof navigator !== 'undefined' ? (navigator.platform || '') : '';
+    const maxTouchPoints = typeof navigator !== 'undefined' ? (navigator.maxTouchPoints || 0) : 0;
+
+    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Silk/i.test(ua);
+    const isIPadOS = platform === 'MacIntel' && maxTouchPoints > 1;
+    const hasTouchScreen =
+      typeof window !== 'undefined' &&
+      ('ontouchstart' in window || maxTouchPoints > 0);
+
+    const hasMobileDimensions =
+      typeof window !== 'undefined' &&
+      Math.min(window.screen?.width || window.innerWidth, window.screen?.height || window.innerHeight) <= 950;
+
+    this.isMobile = Boolean(isMobileUA || isIPadOS || (hasTouchScreen && hasMobileDimensions));
+    this.isTouch = Boolean(hasTouchScreen || this.isMobile);
+
+    this.dismissedPortrait = false;
+    this.stickPointerId = null;
+    this.stickCenter = null;
+
+    if (typeof document !== 'undefined' && (this.isTouch || this.isMobile)) {
+      document.body.classList.add('is-touch-device');
+    }
+
+    if (typeof window !== 'undefined') {
+      this._bindOrientationEvents();
+      this._bindTouchButtons();
+      this.checkOrientation();
+    }
+  }
+
+  _bindOrientationEvents() {
+    window.addEventListener('resize', () => this.checkOrientation());
+    window.addEventListener('orientationchange', () => this.checkOrientation());
+    if (screen && screen.orientation) {
+      screen.orientation.addEventListener('change', () => this.checkOrientation());
+    }
+
+    const btnForce = document.getElementById('btn-force-landscape');
+    if (btnForce) {
+      btnForce.addEventListener('click', (e) => {
+        e.preventDefault();
+        this._requestFullscreenAndLandscape();
+      });
+    }
+
+    const btnDismiss = document.getElementById('btn-dismiss-rotate');
+    if (btnDismiss) {
+      btnDismiss.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.dismissedPortrait = true;
+        const overlay = document.getElementById('rotate-overlay');
+        if (overlay) overlay.classList.add('hidden');
+      });
+    }
+  }
+
+  checkOrientation() {
+    if (typeof window === 'undefined') return;
+
+    const overlay = document.getElementById('rotate-overlay');
+    if (!overlay) return;
+
+    const isPortrait = window.innerHeight > window.innerWidth;
+
+    // Show rotate overlay only on mobile/touch devices when in portrait orientation
+    if (this.isMobile && isPortrait && !this.dismissedPortrait) {
+      overlay.classList.remove('hidden');
+    } else {
+      overlay.classList.add('hidden');
+      if (!isPortrait) {
+        this.dismissedPortrait = false; // Reset dismiss flag once device rotates to landscape
+      }
+    }
+
+    this.updateVisibility();
+  }
+
+  async _requestFullscreenAndLandscape() {
+    try {
+      const doc = document.documentElement;
+      if (doc.requestFullscreen) {
+        await doc.requestFullscreen();
+      } else if (doc.webkitRequestFullscreen) {
+        await doc.webkitRequestFullscreen();
+      }
+      if (screen.orientation && screen.orientation.lock) {
+        await screen.orientation.lock('landscape').catch(() => {});
+      }
+    } catch {
+      // Ignore fullscreen rejection if denied by browser policy
+    }
+  }
+
+  _bindTouchButtons() {
+    const bindBtn = (id, onDown, onUp) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+
+      const handleDown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          if (el.setPointerCapture) el.setPointerCapture(e.pointerId);
+        } catch {}
+        el.classList.add('active');
+        if (navigator.vibrate) {
+          try { navigator.vibrate(12); } catch {}
+        }
+        onDown();
+      };
+
+      const handleUp = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          if (el.releasePointerCapture) el.releasePointerCapture(e.pointerId);
+        } catch {}
+        el.classList.remove('active');
+        onUp();
+      };
+
+      el.addEventListener('pointerdown', handleDown, { passive: false });
+      el.addEventListener('pointerup', handleUp, { passive: false });
+      el.addEventListener('pointercancel', handleUp, { passive: false });
+    };
+
+    // Right Action Cluster
+    bindBtn(
+      'touch-btn-jump',
+      () => this.input.setTouchAction('jump', true),
+      () => this.input.setTouchAction('jump', false)
+    );
+
+    bindBtn(
+      'touch-btn-strike',
+      () => this.input.setTouchAction('strike', true),
+      () => this.input.setTouchAction('strike', false)
+    );
+
+    bindBtn(
+      'touch-btn-lob',
+      () => this.input.setTouchAction('lob', true),
+      () => this.input.setTouchAction('lob', false)
+    );
+
+    bindBtn(
+      'touch-btn-dash',
+      () => this.input.setTouchAction('dash', true),
+      () => this.input.setTouchAction('dash', false)
+    );
+
+    bindBtn(
+      'touch-btn-item',
+      () => this.input.setTouchAction('item', true),
+      () => this.input.setTouchAction('item', false)
+    );
+
+    // Left Directional D-Pad buttons
+    document.querySelectorAll('.dpad-btn').forEach((btn) => {
+      const dir = btn.dataset.dir;
+      bindBtn(
+        btn.id,
+        () => this.input.setTouchDirection(dir, true),
+        () => this.input.setTouchDirection(dir, false)
+      );
+    });
+
+    // Pause Shortcut
+    const touchPause = document.getElementById('touch-btn-pause');
+    if (touchPause) {
+      touchPause.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (this.app && typeof this.app._togglePause === 'function') {
+          this.app._togglePause();
+        }
+      });
+    }
+
+    // Left Analog Drag Touch Zone (Smooth virtual joystick & swipe gestures)
+    const stickZone = document.getElementById('touch-stick-zone');
+    const stickNub = document.getElementById('touch-stick-nub');
+
+    if (stickZone) {
+      stickZone.addEventListener(
+        'pointerdown',
+        (e) => {
+          if (e.target.closest('.dpad-btn')) return; // Allow direct d-pad taps
+          e.preventDefault();
+          this.stickPointerId = e.pointerId;
+          const rect = stickZone.getBoundingClientRect();
+          this.stickCenter = {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+          };
+          this._handleStickMove(e.clientX, e.clientY, stickNub);
+        },
+        { passive: false }
+      );
+
+      stickZone.addEventListener(
+        'pointermove',
+        (e) => {
+          if (e.pointerId !== this.stickPointerId || !this.stickCenter) return;
+          e.preventDefault();
+          this._handleStickMove(e.clientX, e.clientY, stickNub);
+        },
+        { passive: false }
+      );
+
+      const releaseStick = (e) => {
+        if (e.pointerId !== this.stickPointerId) return;
+        this.stickPointerId = null;
+        this.stickCenter = null;
+        this.input.setTouchVector(0, 0);
+        if (stickNub) {
+          stickNub.style.transform = 'translate(-50%, -50%) translate(0px, 0px)';
+        }
+      };
+
+      stickZone.addEventListener('pointerup', releaseStick, { passive: false });
+      stickZone.addEventListener('pointercancel', releaseStick, { passive: false });
+    }
+  }
+
+  _handleStickMove(clientX, clientY, stickNub) {
+    if (!this.stickCenter) return;
+    const dx = clientX - this.stickCenter.x;
+    const dy = clientY - this.stickCenter.y;
+    const dist = Math.hypot(dx, dy);
+    const maxRadius = 55;
+    const normDist = Math.min(1, dist / maxRadius);
+    const normX = dist > 0 ? (dx / dist) * normDist : 0;
+    const normY = dist > 0 ? (dy / dist) * normDist : 0;
+
+    this.input.setTouchVector(normX, normY);
+
+    if (stickNub) {
+      const offsetX = normX * 36;
+      const offsetY = normY * 36;
+      stickNub.style.transform = `translate(-50%, -50%) translate(${offsetX.toFixed(1)}px, ${offsetY.toFixed(1)}px)`;
+    }
+  }
+
+  updateVisibility(currentScreen = this.app?.screen, touchSetting = this.app?.settings?.touchControls || 'auto') {
+    const layer = document.getElementById('touch-controls');
+    if (!layer) return;
+
+    let shouldShow = false;
+    if (currentScreen === 'match') {
+      if (touchSetting === 'on') {
+        shouldShow = true;
+      } else if (touchSetting === 'off') {
+        shouldShow = false;
+      } else {
+        // 'auto': Show if touch/mobile device
+        shouldShow = this.isTouch;
+      }
+    }
+
+    layer.classList.toggle('hidden', !shouldShow);
+    if (typeof document !== 'undefined') {
+      document.body.classList.toggle('is-touch-device', shouldShow || this.isTouch || this.isMobile);
+    }
   }
 }
 
@@ -7865,6 +8269,7 @@ class SuperKickKingdomApp {
 
     this.audio = new AudioEngine(this.settings);
     this.input = new InputManager(this.controls);
+    this.touch = new TouchController(this.input, this);
     this.art = new ArtRenderer();
     this.ai = new AIController();
 
@@ -8451,6 +8856,8 @@ class SuperKickKingdomApp {
       document.getElementById('opt-hazards').checked = this.settings.stageHazards !== false;
       document.getElementById('opt-hitstop').checked = Boolean(this.settings.hitstop);
       document.getElementById('opt-slowmo').checked = Boolean(this.settings.goalSlowMo);
+      const touchEl = document.getElementById('opt-touch');
+      if (touchEl) touchEl.value = this.settings.touchControls || 'auto';
       document.getElementById('opt-vol-master').value = String(this.settings.masterVolume);
       document.getElementById('opt-vol-music').value = String(this.settings.musicVolume);
       document.getElementById('opt-vol-sfx').value = String(this.settings.sfxVolume);
@@ -8469,6 +8876,11 @@ class SuperKickKingdomApp {
       this.settings.stageHazards = document.getElementById('opt-hazards').checked;
       this.settings.hitstop = document.getElementById('opt-hitstop').checked;
       this.settings.goalSlowMo = document.getElementById('opt-slowmo').checked;
+      const touchEl = document.getElementById('opt-touch');
+      if (touchEl) {
+        this.settings.touchControls = touchEl.value;
+        if (this.touch) this.touch.updateVisibility(this.screen, this.settings.touchControls);
+      }
       this.settings.masterVolume = Number(document.getElementById('opt-vol-master').value);
       this.settings.musicVolume = Number(document.getElementById('opt-vol-music').value);
       this.settings.sfxVolume = Number(document.getElementById('opt-vol-sfx').value);
@@ -8488,6 +8900,7 @@ class SuperKickKingdomApp {
       'opt-hazards',
       'opt-hitstop',
       'opt-slowmo',
+      'opt-touch',
       'opt-vol-master',
       'opt-vol-music',
       'opt-vol-sfx',
@@ -9213,6 +9626,10 @@ class SuperKickKingdomApp {
     } else if (next === 'results') {
       document.getElementById('screen-results').classList.remove('hidden');
       this.audio.startMusic('victory');
+    }
+
+    if (this.touch) {
+      this.touch.updateVisibility(next, this.settings.touchControls);
     }
   }
 
@@ -10613,9 +11030,13 @@ class SuperKickKingdomApp {
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('DOMContentLoaded', () => {
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', () => {
+      window.app = new SuperKickKingdomApp();
+    });
+  } else {
     window.app = new SuperKickKingdomApp();
-  });
+  }
 }
 
 

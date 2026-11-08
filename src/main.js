@@ -26,6 +26,7 @@ import { InputManager, formatKeyCode } from './input.js';
 import { ArtRenderer, CHAR_SPRITE_METRICS } from './art.js';
 import { AIController } from './ai.js';
 import { MatchSimulation } from './physics.js';
+import { TouchController } from './touch.js';
 
 export class SuperKickKingdomApp {
   constructor() {
@@ -35,6 +36,7 @@ export class SuperKickKingdomApp {
 
     this.audio = new AudioEngine(this.settings);
     this.input = new InputManager(this.controls);
+    this.touch = new TouchController(this.input, this);
     this.art = new ArtRenderer();
     this.ai = new AIController();
 
@@ -621,6 +623,8 @@ export class SuperKickKingdomApp {
       document.getElementById('opt-hazards').checked = this.settings.stageHazards !== false;
       document.getElementById('opt-hitstop').checked = Boolean(this.settings.hitstop);
       document.getElementById('opt-slowmo').checked = Boolean(this.settings.goalSlowMo);
+      const touchEl = document.getElementById('opt-touch');
+      if (touchEl) touchEl.value = this.settings.touchControls || 'auto';
       document.getElementById('opt-vol-master').value = String(this.settings.masterVolume);
       document.getElementById('opt-vol-music').value = String(this.settings.musicVolume);
       document.getElementById('opt-vol-sfx').value = String(this.settings.sfxVolume);
@@ -639,6 +643,11 @@ export class SuperKickKingdomApp {
       this.settings.stageHazards = document.getElementById('opt-hazards').checked;
       this.settings.hitstop = document.getElementById('opt-hitstop').checked;
       this.settings.goalSlowMo = document.getElementById('opt-slowmo').checked;
+      const touchEl = document.getElementById('opt-touch');
+      if (touchEl) {
+        this.settings.touchControls = touchEl.value;
+        if (this.touch) this.touch.updateVisibility(this.screen, this.settings.touchControls);
+      }
       this.settings.masterVolume = Number(document.getElementById('opt-vol-master').value);
       this.settings.musicVolume = Number(document.getElementById('opt-vol-music').value);
       this.settings.sfxVolume = Number(document.getElementById('opt-vol-sfx').value);
@@ -658,6 +667,7 @@ export class SuperKickKingdomApp {
       'opt-hazards',
       'opt-hitstop',
       'opt-slowmo',
+      'opt-touch',
       'opt-vol-master',
       'opt-vol-music',
       'opt-vol-sfx',
@@ -1383,6 +1393,10 @@ export class SuperKickKingdomApp {
     } else if (next === 'results') {
       document.getElementById('screen-results').classList.remove('hidden');
       this.audio.startMusic('victory');
+    }
+
+    if (this.touch) {
+      this.touch.updateVisibility(next, this.settings.touchControls);
     }
   }
 
@@ -2783,7 +2797,11 @@ export class SuperKickKingdomApp {
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('DOMContentLoaded', () => {
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', () => {
+      window.app = new SuperKickKingdomApp();
+    });
+  } else {
     window.app = new SuperKickKingdomApp();
-  });
+  }
 }

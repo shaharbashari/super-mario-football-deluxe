@@ -11,6 +11,7 @@ const order = [
   'src/config.js',
   'src/audio.js',
   'src/input.js',
+  'src/touch.js',
   'src/art.js',
   'src/ai.js',
   'src/physics.js',

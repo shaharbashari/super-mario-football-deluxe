@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Super Mario Football Deluxe (Kung-Foot 2.0)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -10,6 +10,28 @@
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
+  <!-- Mobile Rotate-to-Landscape Guidance Overlay -->
+  <div id="rotate-overlay" class="rotate-overlay hidden">
+    <div class="rotate-card">
+      <div class="phone-anim-wrapper">
+        <div class="phone-icon">
+          <div class="phone-screen">
+            <span class="phone-ball">⚽</span>
+          </div>
+        </div>
+        <div class="rotate-arrow">↻</div>
+      </div>
+      <h2 class="rotate-title">ROTATE TO LANDSCAPE</h2>
+      <p class="rotate-desc">
+        Super Mario Football Deluxe is optimized for widescreen stadium action! Flip your device sideways to play with on-screen arcade controls.
+      </p>
+      <div class="rotate-actions">
+        <button id="btn-force-landscape" class="kickoff-cta-btn compact">⛶ FULLSCREEN LANDSCAPE</button>
+        <button id="btn-dismiss-rotate" class="rotate-dismiss-btn">PLAY IN PORTRAIT ANYWAY</button>
+      </div>
+    </div>
+  </div>
+
   <div id="stage-wrapper">
     <div id="game-container">
       <canvas id="game-canvas" width="1920" height="1080"></canvas>
@@ -68,6 +90,47 @@
           <span><b>P1:</b> WASD Move/Jump • <b>Space</b> Strike (Up+Space=Lob, Hold=Charge, Down in Air=Ground Pound) • <b>L-Shift</b> Dash • <b>E</b> Item</span>
           <span class="toast-sep">|</span>
           <span id="p2-toast-hint"><b>P2:</b> Arrows Move/Jump • <b>Enter</b> Strike (Up+Enter=Lob, Hold=Charge, Down in Air=Ground Pound) • <b>R-Shift</b> Dash • <b>/</b> Item</span>
+        </div>
+      </div>
+
+      <!-- Mobile & Tablet Touch Controls Layer -->
+      <div id="touch-controls" class="touch-controls-layer hidden">
+        <!-- Left Thumbstick / D-Pad Zone -->
+        <div id="touch-stick-zone" class="touch-stick-zone">
+          <div class="dpad-cross">
+            <button id="touch-dpad-up" class="dpad-btn dpad-up" data-dir="up" aria-label="Up / Jump">▲</button>
+            <button id="touch-dpad-left" class="dpad-btn dpad-left" data-dir="left" aria-label="Left">◀</button>
+            <div id="touch-stick-nub" class="stick-nub"></div>
+            <button id="touch-dpad-right" class="dpad-btn dpad-right" data-dir="right" aria-label="Right">▶</button>
+            <button id="touch-dpad-down" class="dpad-btn dpad-down" data-dir="down" aria-label="Down / Ground Pound">▼</button>
+          </div>
+        </div>
+
+        <!-- Top Touch Pause Shortcut -->
+        <button id="touch-btn-pause" class="touch-pause-btn" aria-label="Pause Match">⏸</button>
+
+        <!-- Right Action Cluster (Jump, Strike, Lob, Dash, Item) -->
+        <div id="touch-action-cluster" class="touch-action-cluster">
+          <button id="touch-btn-item" class="touch-action-btn btn-touch-item" aria-label="Use Item">
+            <span class="btn-touch-icon">🍄</span>
+            <span class="btn-touch-label">ITEM</span>
+          </button>
+          <button id="touch-btn-dash" class="touch-action-btn btn-touch-dash" aria-label="Dash / Parry">
+            <span class="btn-touch-icon">⚡</span>
+            <span class="btn-touch-label">DASH</span>
+          </button>
+          <button id="touch-btn-lob" class="touch-action-btn btn-touch-lob" aria-label="High Lob Volley">
+            <span class="btn-touch-icon">🌈</span>
+            <span class="btn-touch-label">LOB</span>
+          </button>
+          <button id="touch-btn-strike" class="touch-action-btn btn-touch-strike" aria-label="Power Strike">
+            <span class="btn-touch-icon">⚽</span>
+            <span class="btn-touch-label">STRIKE</span>
+          </button>
+          <button id="touch-btn-jump" class="touch-action-btn btn-touch-jump" aria-label="Jump / Air-Kick">
+            <span class="btn-touch-icon">🦘</span>
+            <span class="btn-touch-label">JUMP</span>
+          </button>
         </div>
       </div>
 
@@ -579,6 +642,15 @@
             <label class="opt-row">
               <span>Dramatic Goal Slow-Mo Zoom</span>
               <input type="checkbox" id="opt-slowmo" />
+            </label>
+
+            <label class="opt-row">
+              <span>On-Screen Touch Controls</span>
+              <select id="opt-touch">
+                <option value="auto">Auto (Touch Devices)</option>
+                <option value="on">Always Enabled</option>
+                <option value="off">Disabled</option>
+              </select>
             </label>
 
             <label class="opt-row">

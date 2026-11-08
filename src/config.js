@@ -1004,6 +1004,7 @@ export const DEFAULT_SETTINGS = {
   screenShake: 1.0,
   hitstop: true,
   goalSlowMo: true,
+  touchControls: 'auto',
   masterVolume: 0.8,
   musicVolume: 0.55,
   sfxVolume: 0.85,

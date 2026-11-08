@@ -53,6 +53,26 @@ export class InputManager {
     this.rebindingCallback = null;
     this.connectedGamepads = 0;
 
+    // Mobile / Tablet Touch Controls State for P1
+    this.touchState = {
+      left: false,
+      right: false,
+      up: false,
+      down: false,
+      upPressed: false,
+      downPressed: false,
+      downReleased: false,
+      jumpPressed: false,
+      jumpReleased: false,
+      kickDown: false,
+      kickPressed: false,
+      kickReleased: false,
+      lobDown: false,
+      lobPressed: false,
+      dashPressed: false,
+      itemPressed: false,
+    };
+
     if (typeof window !== 'undefined') {
       window.addEventListener('keydown', (e) => {
         if (this.rebindingCallback) {
@@ -106,6 +126,91 @@ export class InputManager {
     this.keysJustPressed.clear();
     this.keysJustReleased.clear();
     this._snapshotGamepads();
+
+    // Reset edge-triggered touch events
+    this.touchState.upPressed = false;
+    this.touchState.downPressed = false;
+    this.touchState.downReleased = false;
+    this.touchState.jumpPressed = false;
+    this.touchState.jumpReleased = false;
+    this.touchState.kickPressed = false;
+    this.touchState.kickReleased = false;
+    this.touchState.lobPressed = false;
+    this.touchState.dashPressed = false;
+    this.touchState.itemPressed = false;
+  }
+
+  setTouchDirection(dir, isDown) {
+    if (dir === 'left') this.touchState.left = isDown;
+    if (dir === 'right') this.touchState.right = isDown;
+    if (dir === 'up') {
+      if (isDown && !this.touchState.up) {
+        this.touchState.upPressed = true;
+        this.touchState.jumpPressed = true;
+      }
+      if (!isDown && this.touchState.up) {
+        this.touchState.jumpReleased = true;
+      }
+      this.touchState.up = isDown;
+    }
+    if (dir === 'down') {
+      if (isDown && !this.touchState.down) {
+        this.touchState.downPressed = true; // Air flick -> Ground Pound!
+      }
+      if (!isDown && this.touchState.down) {
+        this.touchState.downReleased = true;
+      }
+      this.touchState.down = isDown;
+    }
+  }
+
+  setTouchAction(action, isDown) {
+    if (action === 'jump') {
+      if (isDown && !this.touchState.up) {
+        this.touchState.jumpPressed = true;
+        this.touchState.upPressed = true;
+      }
+      if (!isDown && this.touchState.up) {
+        this.touchState.jumpReleased = true;
+      }
+      this.touchState.up = isDown;
+    } else if (action === 'strike') {
+      if (isDown && !this.touchState.kickDown) this.touchState.kickPressed = true;
+      if (!isDown && this.touchState.kickDown) this.touchState.kickReleased = true;
+      this.touchState.kickDown = isDown;
+    } else if (action === 'lob') {
+      if (isDown && !this.touchState.lobDown) this.touchState.lobPressed = true;
+      this.touchState.lobDown = isDown;
+    } else if (action === 'dash') {
+      if (isDown) this.touchState.dashPressed = true;
+    } else if (action === 'item') {
+      if (isDown) this.touchState.itemPressed = true;
+    }
+  }
+
+  setTouchVector(x, y) {
+    const deadzone = 0.22;
+    const prevDown = this.touchState.down;
+    const prevUp = this.touchState.up;
+
+    this.touchState.left = x < -deadzone;
+    this.touchState.right = x > deadzone;
+    this.touchState.up = y < -0.32;
+    this.touchState.down = y > 0.35;
+
+    if (this.touchState.up && !prevUp) {
+      this.touchState.upPressed = true;
+      this.touchState.jumpPressed = true;
+    }
+    if (!this.touchState.up && prevUp) {
+      this.touchState.jumpReleased = true;
+    }
+    if (this.touchState.down && !prevDown) {
+      this.touchState.downPressed = true;
+    }
+    if (!this.touchState.down && prevDown) {
+      this.touchState.downReleased = true;
+    }
   }
 
   _getGamepads() {
@@ -312,6 +417,26 @@ export class InputManager {
       ) {
         itemPressed = true;
       }
+    }
+
+    // Merge Touch Controls for Player 1 (Mobile / Tablet / Touchscreen)
+    if (slotIndex === 0 && this.touchState) {
+      if (this.touchState.left) left = true;
+      if (this.touchState.right) right = true;
+      if (this.touchState.up) up = true;
+      if (this.touchState.down) down = true;
+      if (this.touchState.upPressed) upPressed = true;
+      if (this.touchState.downPressed) downPressed = true;
+      if (this.touchState.downReleased) downReleased = true;
+      if (this.touchState.jumpPressed) jumpPressed = true;
+      if (this.touchState.jumpReleased) jumpReleased = true;
+      if (this.touchState.kickDown) kickDown = true;
+      if (this.touchState.kickPressed) kickPressed = true;
+      if (this.touchState.kickReleased) kickReleased = true;
+      if (this.touchState.lobDown) lobDown = true;
+      if (this.touchState.lobPressed) lobPressed = true;
+      if (this.touchState.itemPressed) itemPressed = true;
+      if (this.touchState.dashPressed) dashPressed = true;
     }
 
     return {
