@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Super Mario Football Deluxe (Kung-Foot 2.0)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Luckiest+Guy&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="stage-wrapper">
+    <div id="game-container">
+      <canvas id="game-canvas" width="1920" height="1080"></canvas>
+
+      <!-- Global Top Utility Bar -->
+      <div id="top-utility-bar">
+        <button id="btn-pause" class="icon-pill hidden" title="Pause (P / Esc)">⏸ PAUSE</button>
+        <button id="btn-mute" class="icon-pill" title="Toggle Audio (M)">🔊 SOUND ON</button>
+        <button id="btn-top-coins" class="icon-pill coin-pill" title="Open Locker Room & Trophies">🪙 <span id="top-coin-count">150</span> • LOCKER</button>
+        <div id="gamepad-indicator" class="gamepad-pill hidden">🎮 1 PAD</div>
+      </div>
+
+      <!-- Trophy / Unlock Toast Stack -->
+      <div id="trophy-toast-container"></div>
+
+      <!-- In-Match Broadcast Scoreboard HUD -->
+      <div id="match-hud" class="hidden">
+        <div class="hud-top-wrap">
+          <div class="hud-board">
+            <div class="hud-team hud-left" id="hud-team-left">
+              <div class="hud-team-meta">
+                <span class="hud-name" id="hud-left-name">MARIO</span>
+                <span class="hud-sub" id="hud-left-sub">PLAYER 1</span>
+              </div>
+              <div class="hud-score" id="hud-left-score">0</div>
+            </div>
+
+            <div class="hud-clock-box">
+              <div class="hud-mode-tag" id="hud-mode-tag">KUNG-FOOT</div>
+              <div class="hud-timer" id="hud-timer">02:00</div>
+            </div>
+
+            <div class="hud-team hud-right" id="hud-team-right">
+              <div class="hud-score" id="hud-right-score">0</div>
+              <div class="hud-team-meta align-right">
+                <span class="hud-name" id="hud-right-name">LUIGI</span>
+                <span class="hud-sub" id="hud-right-sub">CPU</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Team Hype Meters for Signature Hyper-Strikes -->
+          <div class="hud-hype-row" id="hud-hype-row">
+            <div class="hype-meter left-hype" id="hype-box-0">
+              <div class="hype-fill" id="hype-fill-0"></div>
+              <span class="hype-label" id="hype-label-0">HYPE 0%</span>
+            </div>
+            <div class="hype-meter right-hype" id="hype-box-1">
+              <div class="hype-fill" id="hype-fill-1"></div>
+              <span class="hype-label" id="hype-label-1">HYPE 0%</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="controls-toast" class="controls-toast">
+          <span><b>P1:</b> WASD Move/Jump • <b>Space</b> Strike (Up+Space=Lob, Hold=Charge, Down in Air=Ground Pound) • <b>L-Shift</b> Dash • <b>E</b> Item</span>
+          <span class="toast-sep">|</span>
+          <span id="p2-toast-hint"><b>P2:</b> Arrows Move/Jump • <b>Enter</b> Strike (Up+Enter=Lob, Hold=Charge, Down in Air=Ground Pound) • <b>R-Shift</b> Dash • <b>/</b> Item</span>
+        </div>
+      </div>
+
+      <!-- SCREEN 1: MAIN TITLE MENU -->
+      <section id="screen-menu" class="ui-screen active">
+        <div class="title-hero">
+          <div class="tribute-badge">REIMAGINED FROM S&amp;A GAMES' 2019 CLASSIC • DELUXE 2.0</div>
+          <h1 class="game-logo">
+            <span class="logo-top">SUPER MARIO</span>
+            <span class="logo-bottom">FOOTBALL DELUXE</span>
+          </h1>
+          <p class="game-tagline">12 Iconic Strikers • 7 Hazard Stadiums • 18 Power-Ups • Hyper-Strikes, Parries &amp; Party Modes</p>
+        </div>
+
+        <div class="mode-grid deluxe-mode-grid">
+          <!-- 1. Solo Exhibition -->
+          <button class="mode-card primary quick-mode-btn" data-mode="1v1_cpu">
+            <span class="mode-tag-pill">SOLO EXHIBITION</span>
+            <div class="mode-icon-wrap">⚔️</div>
+            <div class="mode-title">1P VS CPU</div>
+            <div class="mode-desc">Duel smart Kung-Foot AI across 4 skill tiers</div>
+            <div class="mode-status-badge">4 AI TIERS</div>
+          </button>
+
+          <!-- 2. Couch Versus -->
+          <button class="mode-card versus quick-mode-btn" data-mode="1v1_pvp">
+            <span class="mode-tag-pill">LOCAL DUEL</span>
+            <div class="mode-icon-wrap">🔥</div>
+            <div class="mode-title">2P VERSUS</div>
+            <div class="mode-desc">Head-to-head on shared keyboard or gamepads</div>
+            <div class="mode-status-badge">COUCH 1V1</div>
+          </button>
+
+          <!-- 3. 2v2 Team Chaos -->
+          <button class="mode-card chaos quick-mode-btn" data-mode="2v2">
+            <span class="mode-tag-pill">TEAM DOUBLES</span>
+            <div class="mode-icon-wrap">⚡</div>
+            <div class="mode-title">2v2 TEAM CHAOS</div>
+            <div class="mode-desc">4 strikers with 3-tier Hyper Voltage pass combos</div>
+            <div class="mode-status-badge">VOLTAGE COMBO</div>
+          </button>
+
+          <!-- 4. Grand Prix Cups -->
+          <button class="mode-card cup" id="btn-mode-cups">
+            <span class="mode-tag-pill">CAMPAIGN</span>
+            <div class="mode-icon-wrap">🏆</div>
+            <div class="mode-title">GRAND PRIX</div>
+            <div class="mode-desc">4 Championship Cups (Playable 1P Solo or 2P Co-op)</div>
+            <div class="mode-status-badge gold" id="menu-cup-badge">0 / 4 CUPS WON</div>
+          </button>
+
+          <!-- 5. Striker Trials Dojo -->
+          <button class="mode-card trials" id="btn-mode-trials">
+            <span class="mode-tag-pill">MASTERY</span>
+            <div class="mode-icon-wrap">🥋</div>
+            <div class="mode-title">STRIKER TRIALS</div>
+            <div class="mode-desc">8 Master skill challenges with Star Medals &amp; coin bounties</div>
+            <div class="mode-status-badge gold" id="menu-trials-badge">0 / 8 STARS</div>
+          </button>
+
+          <!-- 6. Party Tournament -->
+          <button class="mode-card tourney" id="btn-mode-tourney">
+            <span class="mode-tag-pill">BRACKET KO</span>
+            <div class="mode-icon-wrap">👑</div>
+            <div class="mode-title">TOURNAMENT</div>
+            <div class="mode-desc">4 or 8 striker visual elimination bracket!</div>
+            <div class="mode-status-badge">1–4 PLAYERS</div>
+          </button>
+
+          <!-- 7. Minigame Arcade -->
+          <button class="mode-card solo" id="btn-mode-arcade">
+            <span class="mode-tag-pill">HIGH SCORE</span>
+            <div class="mode-icon-wrap">🎯</div>
+            <div class="mode-title">ARCADE DOJO</div>
+            <div class="mode-desc">Target Blitz, Keep-Up Lava &amp; Goalie Gauntlet</div>
+            <div class="mode-status-badge cyan" id="menu-best-badge">3 CHALLENGES</div>
+          </button>
+
+          <!-- 8. Mutators Lab -->
+          <button class="mode-card mutators" id="btn-mode-mutators">
+            <span class="mode-tag-pill">SANDBOX</span>
+            <div class="mode-icon-wrap">🧪</div>
+            <div class="mode-title">MUTATORS LAB</div>
+            <div class="mode-desc">Custom physics, Iron Ball, curved world &amp; presets</div>
+            <div class="mode-status-badge green" id="menu-mutator-badge">0 ACTIVE</div>
+          </button>
+        </div>
+
+        <div class="menu-footer-actions">
+          <button id="btn-open-locker" class="dock-btn gold-accent">🏅 LOCKER &amp; TROPHIES <span id="menu-trophy-badge" class="dock-pill">0/26</span></button>
+          <button id="btn-open-options" class="dock-btn">⚙️ OPTIONS</button>
+          <button id="btn-open-controls" class="dock-btn">🎮 CONTROLS</button>
+          <button id="btn-open-codex" class="dock-btn">🍄 CODEX (18)</button>
+        </div>
+      </section>
+
+      <!-- SCREEN 2: CHARACTER & STADIUM SELECT -->
+      <section id="screen-select" class="ui-screen hidden">
+        <div class="select-header">
+          <button id="btn-select-back" class="back-btn">← BACK</button>
+          <div>
+            <h2 id="select-screen-title" class="screen-heading">CHOOSE YOUR STRIKERS</h2>
+            <p id="select-screen-sub" class="screen-subheading">A/D &amp; ←/→ Select • W/↑ Cycle Kit • Press ENTER to Kick Off!</p>
+          </div>
+          <div class="select-header-right">
+            <button id="btn-select-mutators" class="secondary-btn compact">🧪 MUTATORS (<span id="select-mut-count">0</span>)</button>
+            <button id="btn-select-options" class="secondary-btn compact">⚙️ RULES</button>
+          </div>
+        </div>
+
+        <div class="select-main-row">
+          <!-- Left Fighter Card -->
+          <div class="fighter-panel team-0-panel">
+            <div class="panel-team-header">
+              <span id="p1-panel-label">PLAYER 1 (LEFT GOAL)</span>
+              <button id="btn-cycle-ally" class="kit-pill hidden" title="Cycle 2v2 / Co-op Teammate">ALLY: Luigi ↻</button>
+            </div>
+            <div class="puppet-stage-row">
+              <button class="cycle-arrow" data-slot="0" data-dir="-1">◀</button>
+              <canvas id="preview-canvas-0" width="260" height="250"></canvas>
+              <button class="cycle-arrow" data-slot="0" data-dir="1">▶</button>
+            </div>
+            <div class="fighter-name-row">
+              <div class="fighter-name" id="char0-name">Mario</div>
+              <button class="kit-pill" id="btn-kit-0" title="Change Jersey Kit (W)">🎨 Classic Red</button>
+            </div>
+            <div class="fighter-title" id="char0-title">All-Round Striker</div>
+            <div class="trait-box">
+              <div><span class="trait-pill" id="char0-trait">Turbo Volley</span><span id="char0-trait-desc"></span></div>
+              <div class="hyper-line">⚡ HYPER: <b id="char0-hyper">Twin Blaze Tornado</b></div>
+            </div>
+            <button id="btn-unlock-char-0" class="unlock-char-btn hidden">🔓 UNLOCK FOR 120 🪙</button>
+            <div class="stats-grid" id="char0-stats"></div>
+            <div class="roster-strip" id="roster-strip-0"></div>
+          </div>
+
+          <!-- Center Arena & Quick Rules Column -->
+          <div class="center-setup-col">
+            <div class="arena-picker-card">
+              <div class="section-mini-label">SELECT STADIUM (7 BIOMES)</div>
+              <div class="arena-cards-row deluxe-arena-grid" id="arena-cards-container"></div>
+              <div class="arena-selected-info">
+                <strong id="arena-title">Mushroom Meadow</strong>
+                <span id="arena-desc">Faithful recessed side-goals &amp; crisp turf bounce.</span>
+              </div>
+            </div>
+
+            <div class="quick-rules-box" id="quick-rules-box">
+              <div class="quick-rule-row hidden" id="row-2v2-format">
+                <span>2v2 Squad:</span>
+                <div class="pill-group" id="quick-2v2-pills">
+                  <button data-format="4p" class="active">🎮 4P Couch</button>
+                  <button data-format="3p">3 Players</button>
+                  <button data-format="duel">2P Duel</button>
+                  <button data-format="coop">2P Co-Op</button>
+                  <button data-format="solo">1P Solo</button>
+                </div>
+              </div>
+              <div class="quick-rule-row" id="ai-diff-row">
+                <span>AI Skill:</span>
+                <div class="pill-group" id="quick-ai-pills">
+                  <button data-ai="rookie">Rookie</button>
+                  <button data-ai="striker">Striker</button>
+                  <button data-ai="pro">All-Star</button>
+                  <button data-ai="legend">Legend</button>
+                </div>
+              </div>
+              <div class="quick-rule-row">
+                <span>Time:</span>
+                <div class="pill-group" id="quick-time-pills">
+                  <button data-time="60">1:00</button>
+                  <button data-time="120">2:00</button>
+                  <button data-time="180">3:00</button>
+                  <button data-time="0">∞</button>
+                </div>
+              </div>
+              <div class="quick-rule-row">
+                <span>Items:</span>
+                <div class="pill-group" id="quick-item-pills">
+                  <button data-items="standard">All 18</button>
+                  <button data-items="frantic">Frantic</button>
+                  <button data-items="competitive">Tourney</button>
+                  <button data-items="off">Off</button>
+                </div>
+              </div>
+              <div class="quick-rule-row">
+                <span>Deluxe FX:</span>
+                <div class="pill-group">
+                  <button id="pill-toggle-hyper" class="active">⚡ Hyper: ON</button>
+                  <button id="pill-toggle-hazards" class="active">🌋 Hazards: ON</button>
+                </div>
+              </div>
+            </div>
+
+            <button id="btn-start-match" class="kickoff-cta-btn">⚽ KICK OFF!</button>
+          </div>
+
+          <!-- Right Fighter Card -->
+          <div class="fighter-panel team-1-panel" id="right-fighter-panel">
+            <div class="panel-team-header">
+              <span id="p2-panel-label">CPU RIVAL (RIGHT GOAL)</span>
+              <button id="btn-cycle-foe-ally" class="kit-pill hidden" title="Cycle Team 2 Teammate">ALLY: Bowser ↻</button>
+            </div>
+            <div class="puppet-stage-row">
+              <button class="cycle-arrow" data-slot="1" data-dir="-1">◀</button>
+              <canvas id="preview-canvas-1" width="260" height="250"></canvas>
+              <button class="cycle-arrow" data-slot="1" data-dir="1">▶</button>
+            </div>
+            <div class="fighter-name-row">
+              <div class="fighter-name" id="char1-name">Luigi</div>
+              <button class="kit-pill" id="btn-kit-1" title="Change Jersey Kit (↑)">🎨 Classic Green</button>
+            </div>
+            <div class="fighter-title" id="char1-title">Sky-Spring Brother</div>
+            <div class="trait-box">
+              <div><span class="trait-pill" id="char1-trait">Sky Spring</span><span id="char1-trait-desc"></span></div>
+              <div class="hyper-line">⚡ HYPER: <b id="char1-hyper">Cyclone Vacuum Shot</b></div>
+            </div>
+            <button id="btn-unlock-char-1" class="unlock-char-btn hidden">🔓 UNLOCK FOR 120 🪙</button>
+            <div class="stats-grid" id="char1-stats"></div>
+            <div class="roster-strip" id="roster-strip-1"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SCREEN 3: POST-MATCH VICTORY PODIUM -->
+      <section id="screen-results" class="ui-screen hidden">
+        <div class="results-card">
+          <div class="results-badges-row">
+            <div class="cup-progress-banner hidden" id="cup-progress-banner">CUP ROUND 1</div>
+            <div class="coin-reward-badge" id="results-coin-badge">+35 🪙 STAR-COINS!</div>
+          </div>
+          <h2 id="results-headline" class="results-headline">MARIO WINS!</h2>
+          <div id="results-scoreline" class="results-scoreline">4 — 2</div>
+
+          <canvas id="podium-canvas" width="520" height="185"></canvas>
+
+          <table class="stats-table" id="results-stats-table">
+            <thead>
+              <tr>
+                <th>STRIKER</th>
+                <th>GOALS</th>
+                <th>HYPER / PWR</th>
+                <th>SAVES / PARRY</th>
+                <th>ITEMS</th>
+                <th>KOs</th>
+              </tr>
+            </thead>
+            <tbody id="results-stats-body"></tbody>
+          </table>
+
+          <div class="results-actions">
+            <button id="btn-next-cup" class="kickoff-cta-btn hidden">🏆 NEXT CUP ROUND →</button>
+            <button id="btn-back-tourney" class="kickoff-cta-btn hidden">👑 TOURNAMENT BRACKET →</button>
+            <button id="btn-rematch" class="kickoff-cta-btn">🔄 REMATCH (R)</button>
+            <button id="btn-change-chars" class="secondary-btn">👥 CHANGE STRIKERS</button>
+            <button id="btn-results-home" class="secondary-btn">🏠 MAIN MENU</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- GRAND PRIX CUPS MODAL -->
+      <div id="modal-cups" class="modal-backdrop hidden">
+        <div class="modal-box wide-modal">
+          <div class="modal-header">
+            <h2 class="modal-title">🏆 GRAND PRIX CHAMPIONSHIP CUPS</h2>
+            <button class="modal-close" data-close="modal-cups">✕</button>
+          </div>
+          <div class="cup-coop-bar">
+            <span>Choose Squad Mode:</span>
+            <div class="pill-group" id="cup-coop-pills">
+              <button data-coop="false" class="active">👤 1P SOLO CHALLENGER</button>
+              <button data-coop="true">👥 2P COUCH CO-OP TEAM</button>
+            </div>
+          </div>
+          <div id="cups-grid" class="cups-grid"></div>
+        </div>
+      </div>
+
+      <!-- PARTY KNOCKOUT TOURNAMENT MODAL -->
+      <div id="modal-tourney" class="modal-backdrop hidden">
+        <div class="modal-box wide-modal">
+          <div class="modal-header">
+            <h2 class="modal-title">👑 PARTY KNOCKOUT TOURNAMENT</h2>
+            <button class="modal-close" data-close="modal-tourney">✕</button>
+          </div>
+
+          <div id="tourney-setup-bar" class="tourney-setup-bar">
+            <div class="pill-group" id="tourney-size-pills">
+              <button data-size="4">4 STRIKERS (SEMIS)</button>
+              <button data-size="8" class="active">8 STRIKERS (FULL BRACKET)</button>
+            </div>
+            <div class="pill-group" id="tourney-humans-pills">
+              <button data-humans="1" class="active">1 HUMAN</button>
+              <button data-humans="2">2 HUMANS</button>
+              <button data-humans="3">3 HUMANS</button>
+              <button data-humans="4">4 HUMANS</button>
+            </div>
+            <button id="btn-generate-tourney" class="secondary-btn compact">🎲 NEW BRACKET</button>
+          </div>
+
+          <div id="tourney-bracket-view" class="tourney-bracket-view"></div>
+
+          <div class="modal-footer">
+            <div id="tourney-status-text" class="tourney-status-text">Ready for Kickoff!</div>
+            <button id="btn-play-tourney-match" class="kickoff-cta-btn compact">⚽ PLAY NEXT MATCH!</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MINIGAME ARCADE MODAL -->
+      <div id="modal-arcade" class="modal-backdrop hidden">
+        <div class="modal-box wide-modal">
+          <div class="modal-header">
+            <h2 class="modal-title">🎯 KUNG-FOOT MINIGAME ARCADE</h2>
+            <button class="modal-close" data-close="modal-arcade">✕</button>
+          </div>
+          <p class="modal-note">Pick a solo skill challenge to smash records, sharpen your parries &amp; earn Star-Coins!</p>
+          <div class="arcade-grid">
+            <div class="arcade-card" data-minigame="target_blitz">
+              <div class="mode-icon">🎯</div>
+              <h3>TARGET BLITZ</h3>
+              <p>60-second bullseye &amp; goal-bonus combo frenzy! (Tribute to 2019 SP mode)</p>
+              <div class="record-pill" id="rec-target">BEST: 0 PTS</div>
+              <button class="kickoff-cta-btn compact">PLAY</button>
+            </div>
+            <div class="arcade-card" data-minigame="keep_up">
+              <div class="mode-icon">🌋</div>
+              <h3>KEEP-UP SURVIVAL</h3>
+              <p>The pitch is molten magma! Juggle 1–4 balls aloft without a single drop!</p>
+              <div class="record-pill" id="rec-keepup">BEST: 0.0s</div>
+              <button class="kickoff-cta-btn compact">PLAY</button>
+            </div>
+            <div class="arcade-card" data-minigame="goalie_gauntlet">
+              <div class="mode-icon">🧤</div>
+              <h3>GOALIE GAUNTLET</h3>
+              <p>3 Lives vs the rapid-fire Striker-Cannon! Dive, kick &amp; Perfect Parry!</p>
+              <div class="record-pill" id="rec-gauntlet">BEST: 0 SAVES</div>
+              <button class="kickoff-cta-btn compact">PLAY</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PARTY MUTATORS LAB MODAL -->
+      <div id="modal-mutators" class="modal-backdrop hidden">
+        <div class="modal-box wide-modal">
+          <div class="modal-header">
+            <h2 class="modal-title">🧪 PARTY MUTATORS LAB</h2>
+            <button class="modal-close" data-close="modal-mutators">✕</button>
+          </div>
+          <p class="modal-note">Mix and match wild physics &amp; stadium modifiers for unforgettable couch chaos!</p>
+          <div id="mutators-grid" class="mutators-grid"></div>
+          <div class="modal-footer">
+            <button id="btn-clear-mutators" class="secondary-btn">CLEAR ALL</button>
+            <button id="btn-preset-arcade" class="secondary-btn">🪀 ARCADE CHAOS</button>
+            <button id="btn-preset-hardcore" class="secondary-btn">⚓ HEAVY DUEL</button>
+            <button id="btn-random-mutators" class="secondary-btn">🎲 RANDOM (3)</button>
+            <button class="kickoff-cta-btn compact" data-close="modal-mutators">APPLY</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- STRIKER TRIAL DOJO MODAL -->
+      <div id="modal-trials" class="modal-backdrop hidden">
+        <div class="modal-box wide-modal">
+          <div class="modal-header">
+            <h2 class="modal-title">🥋 STRIKER TRIAL DOJO</h2>
+            <div class="locker-header-right">
+              <span class="coin-badge gold" id="trials-star-badge">⭐ 0 / 8 STARS</span>
+              <button class="modal-close" data-close="modal-trials">✕</button>
+            </div>
+          </div>
+          <p class="modal-note">
+            Master the deepest Kung-Foot mechanics! Complete discrete challenges to earn Star Medals, substantial coin bounties, and exclusive trophies.
+          </p>
+          <div id="trials-grid" class="trials-grid"></div>
+          <div class="modal-footer">
+            <button class="kickoff-cta-btn compact" data-close="modal-trials">CLOSE</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- LOCKER ROOM & TROPHY HALL MODAL -->
+      <div id="modal-locker" class="modal-backdrop hidden">
+        <div class="modal-box wide-modal">
+          <div class="modal-header">
+            <h2 class="modal-title">🏅 LOCKER ROOM &amp; TROPHY HALL</h2>
+            <div class="locker-header-right">
+              <span class="coin-balance-pill">🪙 <b id="locker-coin-count">150</b> STAR-COINS</span>
+              <button class="modal-close" data-close="modal-locker">✕</button>
+            </div>
+          </div>
+
+          <div class="locker-tabs-bar">
+            <div class="pill-group" id="locker-tabs">
+              <button data-tab="chars" class="active">👥 STRIKERS</button>
+              <button data-tab="balls">⚽ BALL SKINS</button>
+              <button data-tab="explosions">🎆 GOAL FX</button>
+              <button data-tab="trophies">🏆 TROPHIES (26)</button>
+            </div>
+            <label class="party-unlock-toggle" title="Instantly unlock all strikers & cosmetics for local party nights!">
+              <input type="checkbox" id="chk-party-unlock" />
+              <span>🎉 Party Unlock All</span>
+            </label>
+          </div>
+
+          <div id="locker-content" class="locker-content"></div>
+        </div>
+      </div>
+
+      <!-- PAUSE MODAL -->
+      <div id="modal-pause" class="modal-backdrop hidden">
+        <div class="modal-box compact-modal">
+          <h2 class="modal-title">MATCH PAUSED</h2>
+          <div class="pause-btn-stack">
+            <button id="btn-resume" class="kickoff-cta-btn">▶ RESUME (P / ESC)</button>
+            <button id="btn-pause-restart" class="secondary-btn">🔄 RESTART MATCH</button>
+            <button id="btn-pause-controls" class="secondary-btn">🎮 CONTROLS &amp; REBIND</button>
+            <button id="btn-pause-options" class="secondary-btn">⚙️ MATCH &amp; AUDIO SETTINGS</button>
+            <button id="btn-pause-quit" class="secondary-btn danger">🏠 QUIT TO MENU</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- OPTIONS MODAL -->
+      <div id="modal-options" class="modal-backdrop hidden">
+        <div class="modal-box">
+          <div class="modal-header">
+            <h2 class="modal-title">⚙️ MATCH, PHYSICS &amp; FEEL OPTIONS</h2>
+            <button class="modal-close" data-close="modal-options">✕</button>
+          </div>
+
+          <div class="options-grid">
+            <label class="opt-row">
+              <span>Match Length</span>
+              <select id="opt-duration">
+                <option value="60">1:00 Blitz</option>
+                <option value="120">2:00 Classic</option>
+                <option value="180">3:00 Standard</option>
+                <option value="300">5:00 Marathon</option>
+                <option value="0">Unlimited (First-to-Score)</option>
+              </select>
+            </label>
+
+            <label class="opt-row">
+              <span>Score Limit (First to X)</span>
+              <select id="opt-score-limit">
+                <option value="0">No Cap (Timed)</option>
+                <option value="3">First to 3 Goals</option>
+                <option value="5">First to 5 Goals</option>
+                <option value="7">First to 7 Goals</option>
+                <option value="10">First to 10 Goals</option>
+              </select>
+            </label>
+
+            <label class="opt-row">
+              <span>Sudden Death Tiebreaker</span>
+              <select id="opt-sudden-death">
+                <option value="golden">Golden Goal (Next Goal Wins)</option>
+                <option value="mayhem">10-Ball Mayhem! (2019 Classic Tribute)</option>
+              </select>
+            </label>
+
+            <label class="opt-row">
+              <span>Power-Up Items</span>
+              <select id="opt-items">
+                <option value="standard">Standard (All 18 Items)</option>
+                <option value="frantic">Frantic (Fast Cloud Drops)</option>
+                <option value="competitive">Competitive (Balanced Pool)</option>
+                <option value="off">Pure Kung-Foot (Items Off)</option>
+              </select>
+            </label>
+
+            <label class="opt-row">
+              <span>Ball Physics Preset</span>
+              <select id="opt-ball-preset">
+                <option value="balanced">Balanced Arcade</option>
+                <option value="bouncy">Bouncy Beach-Orb</option>
+                <option value="heavy">Heavy Striker Leather</option>
+                <option value="pinball">Pinball Turbo</option>
+              </select>
+            </label>
+
+            <label class="opt-row">
+              <span>Screen Shake Intensity</span>
+              <select id="opt-shake">
+                <option value="0">Off</option>
+                <option value="0.5">Gentle</option>
+                <option value="1">Arcade Normal</option>
+                <option value="1.4">Maximum Impact</option>
+              </select>
+            </label>
+
+            <label class="opt-row">
+              <span>Signature Hyper-Strikes</span>
+              <input type="checkbox" id="opt-hyper" />
+            </label>
+
+            <label class="opt-row">
+              <span>Interactive Stage Hazards</span>
+              <input type="checkbox" id="opt-hazards" />
+            </label>
+
+            <label class="opt-row">
+              <span>Impact Hitstop Freeze-Frames</span>
+              <input type="checkbox" id="opt-hitstop" />
+            </label>
+
+            <label class="opt-row">
+              <span>Dramatic Goal Slow-Mo Zoom</span>
+              <input type="checkbox" id="opt-slowmo" />
+            </label>
+
+            <label class="opt-row">
+              <span>Master Volume</span>
+              <input type="range" id="opt-vol-master" min="0" max="1" step="0.05" />
+            </label>
+
+            <label class="opt-row">
+              <span>Music Volume</span>
+              <input type="range" id="opt-vol-music" min="0" max="1" step="0.05" />
+            </label>
+
+            <label class="opt-row">
+              <span>SFX Volume</span>
+              <input type="range" id="opt-vol-sfx" min="0" max="1" step="0.05" />
+            </label>
+          </div>
+
+          <div class="modal-footer">
+            <button id="btn-reset-options" class="secondary-btn">RESET DEFAULTS</button>
+            <button class="kickoff-cta-btn compact" data-close="modal-options">DONE</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTROLS & REBIND MODAL -->
+      <div id="modal-controls" class="modal-backdrop hidden">
+        <div class="modal-box wide-modal">
+          <div class="modal-header">
+            <h2 class="modal-title">🎮 CONTROLS &amp; 4-PLAYER XINPUT SETUP</h2>
+            <button class="modal-close" data-close="modal-controls">✕</button>
+          </div>
+          <div class="xinput-callout-card">
+            <div class="xinput-badge">🎮 NATIVE XINPUT GAMEPAD SUPPORT (UP TO 4 CONTROLLERS)</div>
+            <div class="xinput-map-grid">
+              <span><b>A (Cross):</b> Jump / Wall-Jump / Confirm</span>
+              <span><b>X (Square):</b> Strike (Hold to Charge)</span>
+              <span><b>Up + Strike / Y:</b> High Lob Volley</span>
+              <span><b>Down in Air:</b> Ground Pound / Meteor Spike</span>
+              <span><b>B / LB / LT:</b> Dash, Tackle &amp; Parry</span>
+              <span><b>RB / RT:</b> Use Power-Up Item</span>
+              <span><b>Left Stick / D-Pad:</b> Move &amp; Magnus Spin</span>
+              <span><b>Start:</b> Pause Match / Kickoff</span>
+            </div>
+            <div class="xinput-subnote">
+              Plug in up to 4 Xbox, PlayStation, or Switch controllers — slots 1 through 4 auto-map instantly for 2v2 Couch Chaos!
+            </div>
+          </div>
+
+          <div class="controls-columns four-col">
+            <div class="ctrl-col">
+              <h3>P1 (WASD / PAD 1)</h3>
+              <div id="rebind-list-p1" class="rebind-list"></div>
+            </div>
+            <div class="ctrl-col">
+              <h3>P2 (ARROWS / PAD 2)</h3>
+              <div id="rebind-list-p2" class="rebind-list"></div>
+            </div>
+            <div class="ctrl-col">
+              <h3>P3 (IJKL / PAD 3)</h3>
+              <div id="rebind-list-p3" class="rebind-list"></div>
+            </div>
+            <div class="ctrl-col">
+              <h3>P4 (NUMPAD / PAD 4)</h3>
+              <div id="rebind-list-p4" class="rebind-list"></div>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button id="btn-reset-controls" class="secondary-btn">RESTORE DEFAULT KEYS</button>
+            <button class="kickoff-cta-btn compact" data-close="modal-controls">SAVE &amp; CLOSE</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- POWER-UP CODEX MODAL -->
+      <div id="modal-codex" class="modal-backdrop hidden">
+        <div class="modal-box wide-modal">
+          <div class="modal-header">
+            <h2 class="modal-title">🍄 SKY-COURIER POWER-UP CODEX (ALL 18)</h2>
+            <button class="modal-close" data-close="modal-codex">✕</button>
+          </div>
+          <p class="modal-note">
+            Double-jump to pop the Sky-Courier's crystal bubble and store any of these 18 wild items in your goal-step pedestal!
+          </p>
+          <div id="codex-grid" class="codex-grid"></div>
+          <div class="modal-footer">
+            <button class="kickoff-cta-btn compact" data-close="modal-codex">GOT IT!</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bundled from modular src/*.js via `node build.mjs` so file:// & itch.io both work out of the box -->
+  <script defer src="./dist/bundle.js"></script>
+</body>
+</html>

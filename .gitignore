@@ -1,0 +1,18 @@
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Archives & Builds
+*.zip
+super-kick-kingdom-itch.zip
+
+# Compiled Swift binaries
+compile_c3_atlas
+expand_6pose_to_atlas
+synthesize_fluid_atlas
+synthesize_fluid_24fps_atlas
+synthesize_clean_24fps_atlas
+verify_atlas_borders
+
+# Temp & logs
+*.log
