@@ -116,4 +116,24 @@ assert(controller, 'TouchController should instantiate cleanly');
 assert.strictEqual(controller.dismissedPortrait, false);
 console.log('✓ Test 6 Passed: TouchController instantiated without DOM errors');
 
-console.log('\nALL 6 MOBILE TOUCH TESTS PASSED PERFECTLY!\n');
+// Test 7: Random Stage Selection in ARENAS
+import { ARENAS, CHARACTERS, isCharUnlocked } from './src/config.js';
+const randomArena = ARENAS.find((a) => a.id === 'random' || a.isRandom);
+assert(randomArena, 'Mystery / Random Stadium should be present in ARENAS');
+assert.strictEqual(randomArena.isRandom, true);
+assert.strictEqual(ARENAS.length, 8, 'ARENAS should have 8 total options (7 biomes + 1 random)');
+console.log('✓ Test 7 Passed: Random Stadium properly configured in ARENAS');
+
+// Test 8: Random Player Selection Logic
+const unlocked = CHARACTERS.filter((c) => isCharUnlocked({ unlockedChars: ['mario', 'luigi', 'peach'] }, c.id));
+assert(unlocked.length > 0, 'Should have unlocked characters available');
+const randomChar = unlocked[Math.floor(Math.random() * unlocked.length)];
+assert(['mario', 'luigi', 'peach'].includes(randomChar.id), 'Random picker must respect save unlocks');
+console.log('✓ Test 8 Passed: Random Striker selection properly filters unlocked roster');
+
+// Test 9: Fullscreen Toggle Availability
+assert.strictEqual(typeof controller.toggleFullscreen, 'function');
+assert.strictEqual(typeof controller.isFullscreen, 'function');
+console.log('✓ Test 9 Passed: Fullscreen toggle methods verified');
+
+console.log('\nALL 9 MOBILE TOUCH, FULLSCREEN & RANDOM SELECTION TESTS PASSED PERFECTLY!\n');

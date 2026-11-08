@@ -695,6 +695,36 @@ const ARENAS = [
     gravityScale: 0.76,
     hazardType: 'gravity_ring',
   },
+  {
+    id: 'random',
+    name: 'Mystery Stadium',
+    subtitle: 'Random Hazard Stadium',
+    desc: 'Surprise venue! A random hazard pitch will be chosen for kickoff.',
+    bgKey: 'arena_meadow',
+    musicKey: 'meadow',
+    isRandom: true,
+    skyTop: '#312e81',
+    skyBottom: '#7c3aed',
+    turfColor: '#eab308',
+    turfHighlight: '#fef08a',
+    earthColor: '#1e1b4b',
+    earthDark: '#0f172a',
+    trimColor: '#fde047',
+    goalFloorY: 742,
+    goalCeilingY: 406,
+    pitchFloorY: 966,
+    pitchLeftX: 330,
+    pitchRightX: 1590,
+    goalBackLeftX: 44,
+    goalBackRightX: 1876,
+    goalLineLeftX: 192,
+    goalLineRightX: 1728,
+    platforms: [],
+    wallBounce: 0.84,
+    groundFriction: 1.0,
+    gravityScale: 1.0,
+    hazardType: 'none',
+  },
 ];
 const MUTATORS = [
   { id: 'bigHead', name: 'Big Head Mode', icon: '🗿', desc: '2x oversized bobble-heads on every striker!' },
@@ -1076,8 +1106,8 @@ function getArena(id) {
   return ARENAS.find((a) => a.id === id) || ARENAS[0];
 }
 function isCharUnlocked(save, charId) {
-  if (save.settings.partyUnlockAll) return true;
-  return save.unlockedChars.includes(charId);
+  if (save?.settings?.partyUnlockAll) return true;
+  return Boolean(save?.unlockedChars?.includes(charId));
 }
 
 
@@ -2257,11 +2287,25 @@ class TouchController {
       screen.orientation.addEventListener('change', () => this.checkOrientation());
     }
 
+    // Cross-browser Fullscreen Change Listeners
+    ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'].forEach((evt) => {
+      document.addEventListener(evt, () => this._updateFullscreenUI());
+    });
+
     const btnForce = document.getElementById('btn-force-landscape');
     if (btnForce) {
-      btnForce.addEventListener('click', (e) => {
+      btnForce.addEventListener('click', async (e) => {
         e.preventDefault();
-        this._requestFullscreenAndLandscape();
+        await this.toggleFullscreen();
+        this.checkOrientation();
+      });
+    }
+
+    const btnTopFullscreen = document.getElementById('btn-fullscreen');
+    if (btnTopFullscreen) {
+      btnTopFullscreen.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.toggleFullscreen();
       });
     }
 
@@ -2274,6 +2318,80 @@ class TouchController {
         if (overlay) overlay.classList.add('hidden');
       });
     }
+
+    this._updateFullscreenUI();
+  }
+
+  isFullscreen() {
+    if (typeof document === 'undefined') return false;
+    return Boolean(
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.mozFullScreenElement ||
+      document.msFullscreenElement ||
+      document.body.classList.contains('fullscreen-mode')
+    );
+  }
+
+  async toggleFullscreen() {
+    if (typeof document === 'undefined') return;
+
+    const isFull = this.isFullscreen();
+    const doc = document;
+    const el = document.documentElement;
+
+    if (!isFull) {
+      try {
+        const req =
+          el.requestFullscreen ||
+          el.webkitRequestFullscreen ||
+          el.mozRequestFullScreen ||
+          el.msRequestFullscreen;
+        if (req) {
+          await req.call(el);
+        }
+      } catch (err) {
+        console.warn('Native fullscreen request blocked:', err);
+      }
+
+      try {
+        if (screen.orientation && screen.orientation.lock) {
+          await screen.orientation.lock('landscape').catch(() => {});
+        }
+      } catch {}
+
+      // Pseudo-fullscreen fallback for iOS Safari
+      document.body.classList.add('fullscreen-mode');
+      if (typeof window !== 'undefined') {
+        window.scrollTo(0, 1);
+      }
+    } else {
+      try {
+        const exit =
+          doc.exitFullscreen ||
+          doc.webkitExitFullscreen ||
+          doc.mozCancelFullScreen ||
+          doc.msExitFullscreen;
+        if (exit) {
+          await exit.call(doc);
+        }
+      } catch (err) {
+        console.warn('Native exit fullscreen failed:', err);
+      }
+      document.body.classList.remove('fullscreen-mode');
+    }
+
+    this._updateFullscreenUI();
+  }
+
+  _updateFullscreenUI() {
+    if (typeof document === 'undefined') return;
+    const isFull = this.isFullscreen();
+    const buttons = document.querySelectorAll('.fullscreen-toggle-btn, #btn-fullscreen');
+    buttons.forEach((btn) => {
+      btn.textContent = isFull ? '🗗 WINDOW' : '⛶ FULLSCREEN';
+      btn.classList.toggle('active', isFull);
+    });
   }
 
   checkOrientation() {
@@ -2298,19 +2416,7 @@ class TouchController {
   }
 
   async _requestFullscreenAndLandscape() {
-    try {
-      const doc = document.documentElement;
-      if (doc.requestFullscreen) {
-        await doc.requestFullscreen();
-      } else if (doc.webkitRequestFullscreen) {
-        await doc.webkitRequestFullscreen();
-      }
-      if (screen.orientation && screen.orientation.lock) {
-        await screen.orientation.lock('landscape').catch(() => {});
-      }
-    } catch {
-      // Ignore fullscreen rejection if denied by browser policy
-    }
+    return this.toggleFullscreen();
   }
 
   _bindTouchButtons() {
@@ -8609,6 +8715,21 @@ class SuperKickKingdomApp {
       this._tryUnlockSelectChar(1);
     });
 
+    // Randomize Strikers & Arena Buttons
+    const bindRndBtn = (id, slot) => {
+      const btn = document.getElementById(id);
+      if (btn) btn.addEventListener('click', () => this.randomizePlayer(slot));
+    };
+    bindRndBtn('btn-random-p1', 0);
+    bindRndBtn('btn-random-p2', 1);
+    bindRndBtn('btn-random-ally', 'ally');
+    bindRndBtn('btn-random-foe-ally', 'foeAlly');
+
+    const rndArenaBtn = document.getElementById('btn-random-arena');
+    if (rndArenaBtn) {
+      rndArenaBtn.addEventListener('click', () => this.randomizeArena());
+    }
+
     document.getElementById('btn-start-match').addEventListener('click', () => {
       this._attemptStartFromSelect();
     });
@@ -9843,14 +9964,19 @@ class SuperKickKingdomApp {
     this._populateFighterCard(0, CHARACTERS[this.charIdx0], this.kitIdx0);
     this._populateFighterCard(1, CHARACTERS[this.charIdx1], this.kitIdx1);
 
-    // 7 Stadium Thumbnails
+    // Stadium Thumbnails (7 Biomes + 🎲 Random)
     const arenaBox = document.getElementById('arena-cards-container');
     arenaBox.innerHTML = '';
     ARENAS.forEach((ar, idx) => {
       const card = document.createElement('div');
-      card.className = `arena-thumb ${idx === this.arenaIdx ? 'selected' : ''}`;
-      card.style.backgroundImage = `url('./assets/images/${ar.bgKey}.jpg')`;
-      card.innerHTML = `<span>${ar.name.split(' ')[0]}</span>`;
+      card.className = `arena-thumb ${idx === this.arenaIdx ? 'selected' : ''} ${ar.isRandom ? 'arena-random-thumb' : ''}`;
+      if (ar.isRandom) {
+        card.style.background = 'linear-gradient(135deg, #4f46e5 0%, #9333ea 50%, #f43f5e 100%)';
+        card.innerHTML = `<div class="random-thumb-content"><span class="dice-icon">🎲</span><span class="random-badge">RANDOM</span></div>`;
+      } else {
+        card.style.backgroundImage = `url('./assets/images/${ar.bgKey}.jpg')`;
+        card.innerHTML = `<span>${ar.name.split(' ')[0]}</span>`;
+      }
       card.addEventListener('click', () => {
         if (this.selectedMode === 'cup') return;
         this.audio.playClick();
@@ -9938,6 +10064,17 @@ class SuperKickKingdomApp {
       });
       strip.appendChild(chip);
     });
+
+    // Special [ 🎲 ] Random Striker Roulette Chip
+    const rndChip = document.createElement('button');
+    rndChip.className = 'roster-chip random-roster-chip';
+    rndChip.innerHTML = '🎲';
+    rndChip.title = 'Roll Random Striker!';
+    rndChip.addEventListener('click', () => {
+      if (slot === 1 && (this.selectedMode === 'cup' || this._isMinigameMode())) return;
+      this.randomizePlayer(slot);
+    });
+    strip.appendChild(rndChip);
   }
 
   _syncQuickRulePills() {
@@ -9972,6 +10109,45 @@ class SuperKickKingdomApp {
         b.classList.toggle('active', b.dataset.format === (this.twoVsTwoFormat || '4p'));
       });
     }
+  }
+
+  randomizePlayer(slot) {
+    this.audio.playClick();
+    const unlocked = CHARACTERS.filter((c) => isCharUnlocked(this.save, c.id));
+    if (unlocked.length === 0) return;
+    const picked = unlocked[Math.floor(Math.random() * unlocked.length)];
+    const charIdx = CHARACTERS.findIndex((c) => c.id === picked.id);
+    const kitIdx = Math.floor(Math.random() * (picked.kits?.length || 1));
+
+    if (slot === 0) {
+      this.charIdx0 = charIdx;
+      this.kitIdx0 = kitIdx;
+      this.previewKickTimer0 = 0.35;
+      this._ensureValidAlly();
+    } else if (slot === 1) {
+      this.charIdx1 = charIdx;
+      this.kitIdx1 = kitIdx;
+      this.previewKickTimer1 = 0.35;
+      this._ensureValidFoeAlly();
+    } else if (slot === 'ally') {
+      this.allyCharIdx = charIdx;
+      this.allyKitIdx = kitIdx;
+    } else if (slot === 'foeAlly') {
+      this.foeAllyCharIdx = charIdx;
+      this.foeAllyKitIdx = kitIdx;
+    }
+
+    this._pushToast('🎲 Random Pick!', `${picked.name} selected!`, '✨');
+    this._renderSelectUI();
+  }
+
+  randomizeArena() {
+    this.audio.playClick();
+    const realArenas = ARENAS.filter((a) => !a.isRandom);
+    const picked = realArenas[Math.floor(Math.random() * realArenas.length)];
+    this.arenaIdx = ARENAS.findIndex((a) => a.id === picked.id);
+    this._pushToast('🎲 Random Stadium!', `${picked.name} selected!`, '🏟️');
+    this._renderSelectUI();
   }
 
   // =========================================================================
@@ -10159,9 +10335,16 @@ class SuperKickKingdomApp {
       ];
     }
 
-    const chosenArena = (this.selectedMode === 'trial' && this.activeTrial)
+    let chosenArena = (this.selectedMode === 'trial' && this.activeTrial)
       ? (ARENAS.find((a) => a.id === this.activeTrial.arenaId) || arena)
       : arena;
+
+    // Handle Random / Mystery Stadium selection at kickoff
+    if (chosenArena.id === 'random' || chosenArena.isRandom) {
+      const realArenas = ARENAS.filter((a) => a.id !== 'random' && !a.isRandom);
+      chosenArena = realArenas[Math.floor(Math.random() * realArenas.length)];
+      this._pushToast('🎲 Random Stadium!', `${chosenArena.name} selected for match!`, '🏟️');
+    }
 
     this.ai = new AIController();
     this.paused = false;
@@ -10638,6 +10821,10 @@ class SuperKickKingdomApp {
       this._persist();
     }
 
+    if (this.input.wasKeyJustPressed('KeyF')) {
+      if (this.touch) this.touch.toggleFullscreen();
+    }
+
     if (this._anyModalOpen()) {
       if (
         this.input.wasKeyJustPressed('Escape') ||
@@ -10665,6 +10852,7 @@ class SuperKickKingdomApp {
       if (this.input.wasKeyJustPressed('KeyA')) this._cycleCharacter(0, -1);
       if (this.input.wasKeyJustPressed('KeyD')) this._cycleCharacter(0, 1);
       if (this.input.wasKeyJustPressed('KeyW')) this._cycleKit(0);
+      if (this.input.wasKeyJustPressed('KeyR')) this.randomizePlayer(0);
       if (this.input.wasKeyJustPressed('ArrowLeft')) this._cycleCharacter(1, -1);
       if (this.input.wasKeyJustPressed('ArrowRight')) this._cycleCharacter(1, 1);
       if (this.input.wasKeyJustPressed('ArrowUp')) this._cycleKit(1);

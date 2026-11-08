@@ -694,6 +694,36 @@ export const ARENAS = [
     gravityScale: 0.76,
     hazardType: 'gravity_ring',
   },
+  {
+    id: 'random',
+    name: 'Mystery Stadium',
+    subtitle: 'Random Hazard Stadium',
+    desc: 'Surprise venue! A random hazard pitch will be chosen for kickoff.',
+    bgKey: 'arena_meadow',
+    musicKey: 'meadow',
+    isRandom: true,
+    skyTop: '#312e81',
+    skyBottom: '#7c3aed',
+    turfColor: '#eab308',
+    turfHighlight: '#fef08a',
+    earthColor: '#1e1b4b',
+    earthDark: '#0f172a',
+    trimColor: '#fde047',
+    goalFloorY: 742,
+    goalCeilingY: 406,
+    pitchFloorY: 966,
+    pitchLeftX: 330,
+    pitchRightX: 1590,
+    goalBackLeftX: 44,
+    goalBackRightX: 1876,
+    goalLineLeftX: 192,
+    goalLineRightX: 1728,
+    platforms: [],
+    wallBounce: 0.84,
+    groundFriction: 1.0,
+    gravityScale: 1.0,
+    hazardType: 'none',
+  },
 ];
 
 export const MUTATORS = [
@@ -1090,6 +1120,6 @@ export function getArena(id) {
 }
 
 export function isCharUnlocked(save, charId) {
-  if (save.settings.partyUnlockAll) return true;
-  return save.unlockedChars.includes(charId);
+  if (save?.settings?.partyUnlockAll) return true;
+  return Boolean(save?.unlockedChars?.includes(charId));
 }

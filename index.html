@@ -3,6 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#090b16" />
   <title>Super Mario Football Deluxe (Kung-Foot 2.0)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -39,6 +43,7 @@
       <!-- Global Top Utility Bar -->
       <div id="top-utility-bar">
         <button id="btn-pause" class="icon-pill hidden" title="Pause (P / Esc)">⏸ PAUSE</button>
+        <button id="btn-fullscreen" class="icon-pill fullscreen-toggle-btn" title="Toggle Fullscreen (F)">⛶ FULLSCREEN</button>
         <button id="btn-mute" class="icon-pill" title="Toggle Audio (M)">🔊 SOUND ON</button>
         <button id="btn-top-coins" class="icon-pill coin-pill" title="Open Locker Room & Trophies">🪙 <span id="top-coin-count">150</span> • LOCKER</button>
         <div id="gamepad-indicator" class="gamepad-pill hidden">🎮 1 PAD</div>
@@ -246,7 +251,11 @@
           <div class="fighter-panel team-0-panel">
             <div class="panel-team-header">
               <span id="p1-panel-label">PLAYER 1 (LEFT GOAL)</span>
-              <button id="btn-cycle-ally" class="kit-pill hidden" title="Cycle 2v2 / Co-op Teammate">ALLY: Luigi ↻</button>
+              <div class="panel-header-actions">
+                <button id="btn-random-p1" class="random-dice-btn" title="Pick Random Striker">🎲 RANDOM</button>
+                <button id="btn-cycle-ally" class="kit-pill hidden" title="Cycle 2v2 / Co-op Teammate">ALLY: Luigi ↻</button>
+                <button id="btn-random-ally" class="random-dice-btn compact hidden" title="Randomize Ally">🎲</button>
+              </div>
             </div>
             <div class="puppet-stage-row">
               <button class="cycle-arrow" data-slot="0" data-dir="-1">◀</button>
@@ -270,7 +279,10 @@
           <!-- Center Arena & Quick Rules Column -->
           <div class="center-setup-col">
             <div class="arena-picker-card">
-              <div class="section-mini-label">SELECT STADIUM (7 BIOMES)</div>
+              <div class="arena-picker-header">
+                <div class="section-mini-label">SELECT STADIUM (7 BIOMES + RANDOM)</div>
+                <button id="btn-random-arena" class="random-dice-btn" title="Pick Random Stadium">🎲 RANDOM</button>
+              </div>
               <div class="arena-cards-row deluxe-arena-grid" id="arena-cards-container"></div>
               <div class="arena-selected-info">
                 <strong id="arena-title">Mushroom Meadow</strong>
@@ -332,7 +344,11 @@
           <div class="fighter-panel team-1-panel" id="right-fighter-panel">
             <div class="panel-team-header">
               <span id="p2-panel-label">CPU RIVAL (RIGHT GOAL)</span>
-              <button id="btn-cycle-foe-ally" class="kit-pill hidden" title="Cycle Team 2 Teammate">ALLY: Bowser ↻</button>
+              <div class="panel-header-actions">
+                <button id="btn-random-p2" class="random-dice-btn" title="Pick Random Striker">🎲 RANDOM</button>
+                <button id="btn-cycle-foe-ally" class="kit-pill hidden" title="Cycle Team 2 Teammate">ALLY: Bowser ↻</button>
+                <button id="btn-random-foe-ally" class="random-dice-btn compact hidden" title="Randomize Foe Ally">🎲</button>
+              </div>
             </div>
             <div class="puppet-stage-row">
               <button class="cycle-arrow" data-slot="1" data-dir="-1">◀</button>

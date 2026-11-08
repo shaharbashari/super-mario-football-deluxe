@@ -376,6 +376,21 @@ export class SuperKickKingdomApp {
       this._tryUnlockSelectChar(1);
     });
 
+    // Randomize Strikers & Arena Buttons
+    const bindRndBtn = (id, slot) => {
+      const btn = document.getElementById(id);
+      if (btn) btn.addEventListener('click', () => this.randomizePlayer(slot));
+    };
+    bindRndBtn('btn-random-p1', 0);
+    bindRndBtn('btn-random-p2', 1);
+    bindRndBtn('btn-random-ally', 'ally');
+    bindRndBtn('btn-random-foe-ally', 'foeAlly');
+
+    const rndArenaBtn = document.getElementById('btn-random-arena');
+    if (rndArenaBtn) {
+      rndArenaBtn.addEventListener('click', () => this.randomizeArena());
+    }
+
     document.getElementById('btn-start-match').addEventListener('click', () => {
       this._attemptStartFromSelect();
     });
@@ -1610,14 +1625,19 @@ export class SuperKickKingdomApp {
     this._populateFighterCard(0, CHARACTERS[this.charIdx0], this.kitIdx0);
     this._populateFighterCard(1, CHARACTERS[this.charIdx1], this.kitIdx1);
 
-    // 7 Stadium Thumbnails
+    // Stadium Thumbnails (7 Biomes + 🎲 Random)
     const arenaBox = document.getElementById('arena-cards-container');
     arenaBox.innerHTML = '';
     ARENAS.forEach((ar, idx) => {
       const card = document.createElement('div');
-      card.className = `arena-thumb ${idx === this.arenaIdx ? 'selected' : ''}`;
-      card.style.backgroundImage = `url('./assets/images/${ar.bgKey}.jpg')`;
-      card.innerHTML = `<span>${ar.name.split(' ')[0]}</span>`;
+      card.className = `arena-thumb ${idx === this.arenaIdx ? 'selected' : ''} ${ar.isRandom ? 'arena-random-thumb' : ''}`;
+      if (ar.isRandom) {
+        card.style.background = 'linear-gradient(135deg, #4f46e5 0%, #9333ea 50%, #f43f5e 100%)';
+        card.innerHTML = `<div class="random-thumb-content"><span class="dice-icon">🎲</span><span class="random-badge">RANDOM</span></div>`;
+      } else {
+        card.style.backgroundImage = `url('./assets/images/${ar.bgKey}.jpg')`;
+        card.innerHTML = `<span>${ar.name.split(' ')[0]}</span>`;
+      }
       card.addEventListener('click', () => {
         if (this.selectedMode === 'cup') return;
         this.audio.playClick();
@@ -1705,6 +1725,17 @@ export class SuperKickKingdomApp {
       });
       strip.appendChild(chip);
     });
+
+    // Special [ 🎲 ] Random Striker Roulette Chip
+    const rndChip = document.createElement('button');
+    rndChip.className = 'roster-chip random-roster-chip';
+    rndChip.innerHTML = '🎲';
+    rndChip.title = 'Roll Random Striker!';
+    rndChip.addEventListener('click', () => {
+      if (slot === 1 && (this.selectedMode === 'cup' || this._isMinigameMode())) return;
+      this.randomizePlayer(slot);
+    });
+    strip.appendChild(rndChip);
   }
 
   _syncQuickRulePills() {
@@ -1739,6 +1770,45 @@ export class SuperKickKingdomApp {
         b.classList.toggle('active', b.dataset.format === (this.twoVsTwoFormat || '4p'));
       });
     }
+  }
+
+  randomizePlayer(slot) {
+    this.audio.playClick();
+    const unlocked = CHARACTERS.filter((c) => isCharUnlocked(this.save, c.id));
+    if (unlocked.length === 0) return;
+    const picked = unlocked[Math.floor(Math.random() * unlocked.length)];
+    const charIdx = CHARACTERS.findIndex((c) => c.id === picked.id);
+    const kitIdx = Math.floor(Math.random() * (picked.kits?.length || 1));
+
+    if (slot === 0) {
+      this.charIdx0 = charIdx;
+      this.kitIdx0 = kitIdx;
+      this.previewKickTimer0 = 0.35;
+      this._ensureValidAlly();
+    } else if (slot === 1) {
+      this.charIdx1 = charIdx;
+      this.kitIdx1 = kitIdx;
+      this.previewKickTimer1 = 0.35;
+      this._ensureValidFoeAlly();
+    } else if (slot === 'ally') {
+      this.allyCharIdx = charIdx;
+      this.allyKitIdx = kitIdx;
+    } else if (slot === 'foeAlly') {
+      this.foeAllyCharIdx = charIdx;
+      this.foeAllyKitIdx = kitIdx;
+    }
+
+    this._pushToast('🎲 Random Pick!', `${picked.name} selected!`, '✨');
+    this._renderSelectUI();
+  }
+
+  randomizeArena() {
+    this.audio.playClick();
+    const realArenas = ARENAS.filter((a) => !a.isRandom);
+    const picked = realArenas[Math.floor(Math.random() * realArenas.length)];
+    this.arenaIdx = ARENAS.findIndex((a) => a.id === picked.id);
+    this._pushToast('🎲 Random Stadium!', `${picked.name} selected!`, '🏟️');
+    this._renderSelectUI();
   }
 
   // =========================================================================
@@ -1926,9 +1996,16 @@ export class SuperKickKingdomApp {
       ];
     }
 
-    const chosenArena = (this.selectedMode === 'trial' && this.activeTrial)
+    let chosenArena = (this.selectedMode === 'trial' && this.activeTrial)
       ? (ARENAS.find((a) => a.id === this.activeTrial.arenaId) || arena)
       : arena;
+
+    // Handle Random / Mystery Stadium selection at kickoff
+    if (chosenArena.id === 'random' || chosenArena.isRandom) {
+      const realArenas = ARENAS.filter((a) => a.id !== 'random' && !a.isRandom);
+      chosenArena = realArenas[Math.floor(Math.random() * realArenas.length)];
+      this._pushToast('🎲 Random Stadium!', `${chosenArena.name} selected for match!`, '🏟️');
+    }
 
     this.ai = new AIController();
     this.paused = false;
@@ -2405,6 +2482,10 @@ export class SuperKickKingdomApp {
       this._persist();
     }
 
+    if (this.input.wasKeyJustPressed('KeyF')) {
+      if (this.touch) this.touch.toggleFullscreen();
+    }
+
     if (this._anyModalOpen()) {
       if (
         this.input.wasKeyJustPressed('Escape') ||
@@ -2432,6 +2513,7 @@ export class SuperKickKingdomApp {
       if (this.input.wasKeyJustPressed('KeyA')) this._cycleCharacter(0, -1);
       if (this.input.wasKeyJustPressed('KeyD')) this._cycleCharacter(0, 1);
       if (this.input.wasKeyJustPressed('KeyW')) this._cycleKit(0);
+      if (this.input.wasKeyJustPressed('KeyR')) this.randomizePlayer(0);
       if (this.input.wasKeyJustPressed('ArrowLeft')) this._cycleCharacter(1, -1);
       if (this.input.wasKeyJustPressed('ArrowRight')) this._cycleCharacter(1, 1);
       if (this.input.wasKeyJustPressed('ArrowUp')) this._cycleKit(1);

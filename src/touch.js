@@ -45,11 +45,25 @@ export class TouchController {
       screen.orientation.addEventListener('change', () => this.checkOrientation());
     }
 
+    // Cross-browser Fullscreen Change Listeners
+    ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'].forEach((evt) => {
+      document.addEventListener(evt, () => this._updateFullscreenUI());
+    });
+
     const btnForce = document.getElementById('btn-force-landscape');
     if (btnForce) {
-      btnForce.addEventListener('click', (e) => {
+      btnForce.addEventListener('click', async (e) => {
         e.preventDefault();
-        this._requestFullscreenAndLandscape();
+        await this.toggleFullscreen();
+        this.checkOrientation();
+      });
+    }
+
+    const btnTopFullscreen = document.getElementById('btn-fullscreen');
+    if (btnTopFullscreen) {
+      btnTopFullscreen.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.toggleFullscreen();
       });
     }
 
@@ -62,6 +76,80 @@ export class TouchController {
         if (overlay) overlay.classList.add('hidden');
       });
     }
+
+    this._updateFullscreenUI();
+  }
+
+  isFullscreen() {
+    if (typeof document === 'undefined') return false;
+    return Boolean(
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.mozFullScreenElement ||
+      document.msFullscreenElement ||
+      document.body.classList.contains('fullscreen-mode')
+    );
+  }
+
+  async toggleFullscreen() {
+    if (typeof document === 'undefined') return;
+
+    const isFull = this.isFullscreen();
+    const doc = document;
+    const el = document.documentElement;
+
+    if (!isFull) {
+      try {
+        const req =
+          el.requestFullscreen ||
+          el.webkitRequestFullscreen ||
+          el.mozRequestFullScreen ||
+          el.msRequestFullscreen;
+        if (req) {
+          await req.call(el);
+        }
+      } catch (err) {
+        console.warn('Native fullscreen request blocked:', err);
+      }
+
+      try {
+        if (screen.orientation && screen.orientation.lock) {
+          await screen.orientation.lock('landscape').catch(() => {});
+        }
+      } catch {}
+
+      // Pseudo-fullscreen fallback for iOS Safari
+      document.body.classList.add('fullscreen-mode');
+      if (typeof window !== 'undefined') {
+        window.scrollTo(0, 1);
+      }
+    } else {
+      try {
+        const exit =
+          doc.exitFullscreen ||
+          doc.webkitExitFullscreen ||
+          doc.mozCancelFullScreen ||
+          doc.msExitFullscreen;
+        if (exit) {
+          await exit.call(doc);
+        }
+      } catch (err) {
+        console.warn('Native exit fullscreen failed:', err);
+      }
+      document.body.classList.remove('fullscreen-mode');
+    }
+
+    this._updateFullscreenUI();
+  }
+
+  _updateFullscreenUI() {
+    if (typeof document === 'undefined') return;
+    const isFull = this.isFullscreen();
+    const buttons = document.querySelectorAll('.fullscreen-toggle-btn, #btn-fullscreen');
+    buttons.forEach((btn) => {
+      btn.textContent = isFull ? '🗗 WINDOW' : '⛶ FULLSCREEN';
+      btn.classList.toggle('active', isFull);
+    });
   }
 
   checkOrientation() {
@@ -86,19 +174,7 @@ export class TouchController {
   }
 
   async _requestFullscreenAndLandscape() {
-    try {
-      const doc = document.documentElement;
-      if (doc.requestFullscreen) {
-        await doc.requestFullscreen();
-      } else if (doc.webkitRequestFullscreen) {
-        await doc.webkitRequestFullscreen();
-      }
-      if (screen.orientation && screen.orientation.lock) {
-        await screen.orientation.lock('landscape').catch(() => {});
-      }
-    } catch {
-      // Ignore fullscreen rejection if denied by browser policy
-    }
+    return this.toggleFullscreen();
   }
 
   _bindTouchButtons() {
