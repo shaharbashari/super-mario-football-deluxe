@@ -240,6 +240,12 @@ export class MatchSimulation {
       squashY: 1,
       shadowY: this.arena.pitchFloorY,
 
+      // Smooth Animation Phase Integration
+      animState: 'idle',
+      animPhase: 0,
+      runPhase: 0,
+      strideBounce: 0,
+
       // Ground Pound & Wall Jump Movement Tech
       groundPoundState: 'none', // 'none' | 'stall' | 'plunge' | 'impact'
       groundPoundTimer: 0,
@@ -1163,6 +1169,33 @@ export class MatchSimulation {
     }
 
     this._moveAndCollidePlayer(p, dt, inp.down);
+
+    // Smooth Animation Phase Integration & Kinetic Gait
+    const speedX = Math.abs(p.vx || 0);
+    if (p.stunTimer > 0) {
+      p.animState = 'ouch';
+      p.animPhase = (p.animPhase || 0) + dt;
+      p.strideBounce = 0;
+    } else if (p.groundPoundState && p.groundPoundState !== 'none') {
+      p.animState = 'jump';
+      p.strideBounce = 0;
+    } else if (p.kickTimer > 0) {
+      p.animState = p.kickType === 'up' ? 'kickup' : 'kickside';
+      p.strideBounce = 0;
+    } else if (!p.onGround) {
+      p.animState = 'jump';
+      p.strideBounce = 0;
+    } else if (speedX > 38) {
+      p.animState = 'run';
+      const speedRatio = Math.max(0.65, Math.min(1.4, speedX / 300));
+      p.animPhase = (p.animPhase || 0) + dt * speedRatio;
+      p.runPhase = (p.runPhase || 0) + dt * speedRatio * 18;
+      p.strideBounce = Math.sin(p.runPhase) * 2.5;
+    } else {
+      p.animState = 'idle';
+      p.animPhase = (p.animPhase || 0) + dt;
+      p.strideBounce = 0;
+    }
 
     // Sky-Cloud Courier Item Pickup!
     if (!p.isClone && this.courier.active && this.courier.heldItemId) {
@@ -2444,8 +2477,12 @@ export class MatchSimulation {
   // --- Sky-Cloud Courier & All 18 Power-Up Mechanics ---
   _updateCourier(dt) {
     if (!this.courier.active) return;
+    const prevX = this.courier.x;
+    const prevY = this.courier.y;
     this.courier.x = VIRTUAL_WIDTH / 2 + Math.sin(this.time * 0.65) * 430;
     this.courier.y = 305 + Math.sin(this.time * 1.3) * 46;
+    this.courier.vx = (this.courier.x - prevX) / Math.max(0.001, dt);
+    this.courier.vy = (this.courier.y - prevY) / Math.max(0.001, dt);
 
     if (!this.courier.heldItemId) {
       this.courier.spawnTimer -= dt;

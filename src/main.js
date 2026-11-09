@@ -299,7 +299,7 @@ export class SuperKickKingdomApp {
       this.audio.playClick();
       this._openLockerModal('chars');
     });
-    const openMutBtn = document.getElementById('btn-open-mutators');
+    const openMutBtn = document.getElementById('btn-mode-mutators');
     if (openMutBtn) {
       openMutBtn.addEventListener('click', () => {
         this.audio.playClick();
@@ -2482,7 +2482,10 @@ export class SuperKickKingdomApp {
       this._persist();
     }
 
-    if (this.input.wasKeyJustPressed('KeyF')) {
+    const isAltEnter =
+      (this.input.keysDown.has('AltLeft') || this.input.keysDown.has('AltRight')) &&
+      this.input.wasKeyJustPressed('Enter');
+    if (this.input.wasKeyJustPressed('F11') || isAltEnter) {
       if (this.touch) this.touch.toggleFullscreen();
     }
 

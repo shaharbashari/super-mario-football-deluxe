@@ -1427,16 +1427,43 @@ export class ArtRenderer {
     ctx.save();
     ctx.translate(x, y);
 
+    const vx = courier.vx || 0;
+    const facing = vx < -15 ? -1 : 1;
+    const bankAngle = Math.max(-0.18, Math.min(0.18, vx * 0.0006));
+    const floatBob = Math.sin(time * 4.8) * 8;
+    const breathPulse = 1 + Math.sin(time * 6.5) * 0.035;
+
+    // 1. Animated Trailing Cloud Puffs from the back of the cloud
+    for (let p = 1; p <= 4; p++) {
+      const pPhase = (time * 3.2 + p * 0.25) % 1;
+      const pDist = pPhase * 56;
+      const pX = -facing * (44 + pDist);
+      const pY = 16 + Math.sin(time * 5 + p) * 7 + pPhase * 10;
+      const pRad = 12 + pPhase * 16;
+      const pAlpha = (1 - pPhase) * 0.45;
+      ctx.save();
+      ctx.globalAlpha = pAlpha;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(pX, pY, pRad, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#bae6fd';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 2. Trailing Fishing Line & Item Bubble with Inertia Sway
     if (heldItemId) {
-      const sway = Math.sin(time * 4.5) * 9;
+      const inertiaSway = -vx * 0.09 + Math.sin(time * 4.2) * 8;
       ctx.strokeStyle = INK;
       ctx.lineWidth = 4.5;
       ctx.beginPath();
-      ctx.moveTo(0, 18);
-      ctx.quadraticCurveTo(sway * 0.5, 52, sway, 82);
+      ctx.moveTo(facing * 18, 12);
+      ctx.quadraticCurveTo(inertiaSway * 0.5, 48, inertiaSway, 82);
       ctx.stroke();
 
-      const bx = sway;
+      const bx = inertiaSway;
       const by = 94;
       const pulse = 1 + Math.sin(time * 7) * 0.06;
       ctx.save();
@@ -1445,8 +1472,9 @@ export class ArtRenderer {
 
       // Iridescent soap-crystal item bubble!
       const glow = ctx.createRadialGradient(-8, -10, 6, 0, 0, 46);
-      glow.addColorStop(0, 'rgba(255, 255, 255, 0.92)');
-      glow.addColorStop(0.65, 'rgba(125, 211, 252, 0.48)');
+      glow.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+      glow.addColorStop(0.55, 'rgba(125, 211, 252, 0.52)');
+      glow.addColorStop(0.85, 'rgba(192, 132, 252, 0.32)');
       glow.addColorStop(1, 'rgba(56, 189, 248, 0)');
       ctx.fillStyle = glow;
       ctx.beginPath();
@@ -1461,18 +1489,33 @@ export class ArtRenderer {
       ctx.arc(0, 0, 36, 0, Math.PI * 2);
       ctx.stroke();
 
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
+      // Specular shine highlights
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
       ctx.beginPath();
       ctx.ellipse(-13, -15, 9, 5, -0.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
 
+    // 3. Banked & Animated Lakitu Body
+    ctx.save();
+    ctx.translate(0, floatBob);
+    ctx.rotate(bankAngle);
+    ctx.scale(facing * breathPulse, breathPulse);
+
     if (props) {
-      const bob = Math.sin(time * 5.5) * 3;
       const pW = (props.naturalWidth || props.width || 1024) / 2;
       const pH = (props.naturalHeight || props.height || 1024) / 2;
-      ctx.drawImage(props, 0, 0, pW, pH, -56, -64 + bob, 112, 112);
+      ctx.drawImage(props, 0, 0, pW, pH, -60, -70, 120, 120);
+
+      // Animated Goggle Glint / Eyewear Shimmer!
+      const glintPhase = Math.sin(time * 3.5);
+      if (glintPhase > 0.65) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.beginPath();
+        ctx.arc(-4, -40, 5.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
     } else {
       ctx.fillStyle = '#ffffff';
       ctx.strokeStyle = INK;
@@ -1482,6 +1525,7 @@ export class ArtRenderer {
       ctx.fill();
       ctx.stroke();
     }
+    ctx.restore();
 
     ctx.restore();
   }
@@ -1528,7 +1572,8 @@ export class ArtRenderer {
 
     if (player.stunTimer > 0) {
       const anim = cfg.ouch;
-      const fIdx = Math.floor(time * anim.fps) % anim.count;
+      const phase = player.animPhase !== undefined ? player.animPhase : time;
+      const fIdx = Math.floor(phase * anim.fps) % anim.count;
       return { col: fIdx, row: anim.row };
     }
 
@@ -1565,13 +1610,14 @@ export class ArtRenderer {
     const speedX = Math.abs(player.vx || 0);
     if (speedX > 38) {
       const anim = cfg.run;
-      const speedRatio = Math.max(0.7, Math.min(1.5, speedX / 300));
-      const fIdx = Math.floor(time * anim.fps * speedRatio) % anim.count;
+      const phase = player.animPhase !== undefined ? player.animPhase : time;
+      const fIdx = Math.floor(phase * anim.fps) % anim.count;
       return { col: fIdx, row: anim.row };
     }
 
     const anim = cfg.idle;
-    const fIdx = Math.floor(time * anim.fps) % anim.count;
+    const phase = player.animPhase !== undefined ? player.animPhase : time;
+    const fIdx = Math.floor(phase * anim.fps) % anim.count;
     return { col: fIdx, row: anim.row };
   }
 
@@ -1727,13 +1773,15 @@ export class ArtRenderer {
     const isRunning = player.onGround && Math.abs(player.vx || 0) > 38;
     const isKicking = player.kickTimer > 0;
     const isStunned = player.stunTimer > 0;
+    const strideY = player.strideBounce || 0;
+    const sprintLean = isRunning ? facing * 0.065 : 0;
 
     const floatBobY =
       ch.id === 'king_boo'
         ? Math.sin(time * 5.5) * 5 * scale
         : 0;
 
-    let poseRot = player.spinAngle || 0;
+    let poseRot = (player.spinAngle || 0) + sprintLean;
     if (isKicking) {
       if (player.kickType === 'up') poseRot += facing * -0.32;
       else if (player.kickType === 'spike') poseRot += facing * 0.32;
@@ -1741,7 +1789,7 @@ export class ArtRenderer {
     }
 
     ctx.save();
-    ctx.translate(0, floatBobY);
+    ctx.translate(0, floatBobY + strideY);
     ctx.rotate(poseRot);
 
     ctx.scale(facing * (player.squashX || 1) * scale, (player.squashY || 1) * scale);
