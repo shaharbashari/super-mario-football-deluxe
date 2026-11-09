@@ -26,6 +26,7 @@ import { AIController } from './ai.js';
 import { MatchSimulation } from './physics.js';
 import { TouchController } from './touch.js';
 import { MODE_BRIEFINGS, ARENA_GUIDES, controlHints, PracticeCoach, PRACTICE_STEPS, trialProgress } from './coach.js';
+import { OnlineController } from './online-ui.js';
 
 const INPUT_EDGES = ['upPressed', 'downPressed', 'downReleased', 'jumpPressed', 'jumpReleased',
   'kickPressed', 'kickReleased', 'lobPressed', 'dashPressed', 'itemPressed'];
@@ -124,6 +125,7 @@ export class SuperKickKingdomApp {
       phase: Math.random() * Math.PI * 2,
     }));
 
+    this.online = new OnlineController(this);
     this._bindUI();
     this._renderSelectUI();
     this._renderCodex();
@@ -809,10 +811,15 @@ export class SuperKickKingdomApp {
     this.pendingInputs.clear();
     this.accumulator = 0;
     this._syncDialogState();
-    (modal.querySelector('.kickoff-cta-btn:not(.hidden)') || this._focusableElements(modal)[0])?.focus();
+    const focusable = this._focusableElements(modal);
+    (focusable.find(element => element.classList.contains('kickoff-cta-btn')) || focusable[0])?.focus();
   }
 
   _closeModal(id) {
+    if (id === 'modal-online' && this.online?.room.phase !== 'idle' && !this.online?.navigating) {
+      this.online.leave();
+      return;
+    }
     const index = this.modalStack.findIndex(entry => entry.id === id);
     if (index < 0) return;
     const entries = this.modalStack.splice(index);
@@ -841,7 +848,6 @@ export class SuperKickKingdomApp {
 
   _syncDialogState() {
     const top = this.modalStack.at(-1)?.id;
-    this.input.gameplayActive = this.screen === 'match' && !this.paused && !top;
     for (const id of ['top-utility-bar', 'play-surface', 'screen-menu', 'screen-select', 'screen-results']) {
       document.getElementById(id).inert = Boolean(top);
     }
@@ -851,13 +857,15 @@ export class SuperKickKingdomApp {
       modal.style.zIndex = String(60 + Math.max(0, depth));
       modal.setAttribute('aria-modal', String(modal.id === top));
     });
+    this.online?.syncPauseFromUi();
+    this.input.gameplayActive = this.screen === 'match' && !this.paused && !top;
     this.touch.updateVisibility(this.screen, this.settings.touchControls);
     this.audio.setPaused(this.paused || document.hidden);
   }
 
   _focusableElements(root) {
     return [...root.querySelectorAll('button, input, select, [tabindex="0"]')]
-      .filter(element => !element.disabled && !element.closest('[inert]') && element.getClientRects().length);
+      .filter(element => !element.matches(':disabled') && !element.closest('[inert]') && element.getClientRects().length);
   }
 
   _trapDialogFocus(event) {
@@ -912,7 +920,8 @@ export class SuperKickKingdomApp {
         ? 'Stage hazards are off. Platforms and the stadium gravity and traction still apply.'
         : guide.tip);
     document.getElementById('btn-coach-ready').textContent = this.screen === 'match' ? "LET'S PLAY" : 'GOT IT';
-    document.getElementById('btn-coach-practice').classList.toggle('hidden', this.selectedMode === 'practice' && this.screen === 'match');
+    document.getElementById('btn-coach-practice').classList.toggle('hidden',
+      this.online.activeMatch || (this.selectedMode === 'practice' && this.screen === 'match'));
     this._updateControlPrompts(true);
     this._openModal('modal-coach');
   }
@@ -940,12 +949,14 @@ export class SuperKickKingdomApp {
     const hints = controlHints(this.input);
     this._appendControlPrompts(document.getElementById('coach-controls'), hints, ['move', 'jump', 'kick', 'lob', 'dash', 'item']);
     const toast = document.getElementById('controls-toast');
-    const human = this.match?.players.find(player => !player.isAI && player.controlSlot === this.input.activeSlot) ||
+    const human = (this.online?.activeMatch ? this.match?.players.find(player => player.slot === this.online.room.slot) : null) ||
+      this.match?.players.find(player => !player.isAI && player.controlSlot === this.input.activeSlot) ||
       this.match?.players.find(player => !player.isAI);
-    const slot = human?.controlSlot ?? 0;
+    const slot = this.online?.activeMatch ? 0 : human?.controlSlot ?? 0;
     this._appendControlPrompts(toast, controlHints(this.input, slot), ['move', 'jump', 'kick', 'dash', 'item']);
     const tag = document.createElement('b');
-    tag.textContent = `${source === 'gamepad' ? 'GAMEPAD' : source === 'touch' ? 'TOUCH' : 'KEYBOARD'} / ${human?.tag || 'P1'}`;
+    const playerTag = this.online?.activeMatch ? `P${this.online.room.slot + 1}` : human?.tag || 'P1';
+    tag.textContent = `${source === 'gamepad' ? 'GAMEPAD' : source === 'touch' ? 'TOUCH' : 'KEYBOARD'} / ${playerTag}`;
     toast.prepend(tag);
     document.getElementById('menu-input-status').textContent = source === 'gamepad'
       ? `${this.input.connectedGamepads} controller${this.input.connectedGamepads === 1 ? '' : 's'} ready · A to confirm`
@@ -1644,6 +1655,7 @@ export class SuperKickKingdomApp {
   // SCREEN TRANSITIONS & SELECT SCREEN
   // =========================================================================
   _showScreen(next) {
+    if (this.online?.activeMatch && next !== 'match' && !this.online.navigating) this.online.leave(false);
     this._closeAllModals();
     this.input.clearAll();
     this.pendingInputs.clear();
@@ -2108,6 +2120,7 @@ export class SuperKickKingdomApp {
   // MATCH LAUNCH, HUD & RESULTS LIFECYCLE
   // =========================================================================
   startMatch() {
+    if (this.online?.activeMatch) this.online.leave(false);
     this.match?.dispose();
     this._closeAllModals();
     this.practice = null;
@@ -2495,9 +2508,9 @@ export class SuperKickKingdomApp {
 
   togglePause(forceState) {
     if (this.screen !== 'match') return;
-    const pause = forceState !== undefined ? forceState : !this.paused;
+    const pause = forceState !== undefined ? forceState : !(this.online?.activeMatch ? this.online.localPause : this.paused);
     if (pause) {
-      if (!this.paused) this._openModal('modal-pause');
+      if (!this.paused || this.online?.activeMatch) this._openModal('modal-pause');
     } else {
       this._closeAllModals();
       this.input.clearAll();
@@ -2507,6 +2520,7 @@ export class SuperKickKingdomApp {
   }
 
   _handleMatchFinished(summary) {
+    if (summary.mode === 'online') return;
     if (summary.mode === 'practice') {
       this._showScreen('menu');
       return;
@@ -2753,6 +2767,7 @@ export class SuperKickKingdomApp {
       this._pushToast('Controller disconnected', 'Reconnect it or use the keyboard, then resume when you are ready.', '🎮');
     }
     this._handleGlobalShortcuts();
+    this.online.beforeFrame(rawDt);
     this._updateControlPrompts();
 
     // Update Gamepad Indicator Pill
@@ -2786,15 +2801,16 @@ export class SuperKickKingdomApp {
       this._renderMatchCanvas();
     }
 
+    this.online.afterFrame(rawDt);
     this.input.endFrame();
     requestAnimationFrame((ts) => this._loop(ts));
   }
 
   _stepMatch(rawDt) {
     const match = this.match;
-    if (!match || this.paused) return;
+    if (!match || this.paused || this.online.guestMatch) return;
     for (const player of match.players.filter(player => !player.isAI)) {
-      const current = this.input.getPlayerInput(player.controlSlot);
+      const current = this.online.activeMatch ? this.online.inputFor(player) : this.input.getPlayerInput(player.controlSlot);
       const pending = this.pendingInputs.get(player.controlSlot);
       for (const key of INPUT_EDGES) current[key] ||= pending?.[key] || false;
       this.pendingInputs.set(player.controlSlot, current);
@@ -2874,7 +2890,7 @@ export class SuperKickKingdomApp {
     }
     const startPressed = this.input.wasStartJustPressed();
     if (this.input.wasGamepadButtonJustPressed(slot, 0) || startPressed) {
-      const target = (startPressed ? root.querySelector('.kickoff-cta-btn:not(.hidden)') : focused) ||
+      const target = (startPressed ? elements.find(element => element.classList.contains('kickoff-cta-btn')) : focused) ||
         root.querySelector('.quick-mode-btn, .kickoff-cta-btn:not(.hidden)') || elements[0];
       if (target.matches('select, input[type="range"]')) target.focus();
       else target.click();
@@ -2892,7 +2908,7 @@ export class SuperKickKingdomApp {
       return;
     }
 
-    const humanSlots = this.match?.players.filter(player => !player.isAI).map(player => player.controlSlot) || [];
+    const humanSlots = this.online.activeMatch ? [0] : this.match?.players.filter(player => !player.isAI).map(player => player.controlSlot) || [];
     if (this.input.wasKeyJustPressed('KeyM') && !this.input.isBound('KeyM', humanSlots)) {
       this.audio.toggleMute();
       this._syncMuteButton();
@@ -3209,7 +3225,7 @@ export class SuperKickKingdomApp {
   _renderMatchCanvas() {
     const ctx = this.ctx;
     const m = this.match;
-    const alpha = this.paused ? 1 : Math.min(1, this.accumulator / FIXED_STEP);
+    const alpha = this.paused || this.online.guestMatch ? 1 : Math.min(1, this.accumulator / FIXED_STEP);
     const interpolate = entity => {
       if (!Number.isFinite(entity.previousX) || Math.hypot(entity.x - entity.previousX, entity.y - entity.previousY) > 250) return entity;
       return { ...entity, x: entity.previousX + (entity.x - entity.previousX) * alpha,
@@ -3270,7 +3286,7 @@ export class SuperKickKingdomApp {
     const isRugby = m.hasMutator('rugbyBall');
     for (const b of scene.balls) {
       const floor = b.x < m.arena.pitchLeftX || b.x > m.arena.pitchRightX ? m.arena.goalFloorY : m.arena.pitchFloorY;
-      this.art.drawBall(ctx, b, floor, visualTime, this.settings.equippedBallSkin, isRugby);
+      this.art.drawBall(ctx, b, floor, visualTime, m.settings.equippedBallSkin, isRugby);
     }
 
     // 10. Particles, Custom Goal Explosions, Shockwaves & Floating Callouts

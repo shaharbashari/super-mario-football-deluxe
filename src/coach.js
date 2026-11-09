@@ -1,6 +1,7 @@
 import { formatKeyCode } from './input.js';
 
 export const MODE_BRIEFINGS = {
+  online: ['Your team is connected.', 'Every device uses its own P1 controls. P1 and P3 defend the left goal; P2 and P4 defend the right. Pausing pauses everyone. Keep the host’s game tab open until the match ends.'],
   practice: ['Welcome to the pitch.', 'No opponent. No clock. Just you and the ball. I will walk you through five quick skills, one at a time.'],
   '1v1_cpu': ['Your first rivalry.', 'Defend the left goal and attack the right. A jump and a well-timed strike will lift the ball onto the raised goal ledge. Start with Rookie if you are finding your feet.'],
   '1v1_pvp': ['Settle it on the pitch.', 'Player 1 defends the left; Player 2 defends the right. Share a keyboard or use separate controllers. Take a moment to check both players can move.'],

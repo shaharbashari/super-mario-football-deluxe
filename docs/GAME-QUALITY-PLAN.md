@@ -107,8 +107,8 @@ audio quality still need human playtesting.
 
 ## Next-level product roadmap
 
-These are follow-up product investments, not claims that this pass implements
-an online service or replaces all source artwork.
+These are follow-up product investments, not claims that this pass replaces
+all source artwork or provides a managed competitive online service.
 
 | Phase | Investment | Release gate |
 |---|---|---|
@@ -120,7 +120,7 @@ an online service or replaces all source artwork.
 | Progression | Clear cup/trial milestones, richer rewards, local profiles and save export/import. | Save migrations and recovery tests before introducing new currencies. |
 | Reliability | CI, browser matrix, deterministic production packaging, performance budgets and a long-match soak. | Clean offline launch, stable frame times and bounded memory on target devices. |
 | Content | Stage-specific challenges and authored commentary with an opt-out, not more simultaneous visual noise. | Each addition teaches or changes a meaningful decision. |
-| Online | Consider rollback networking only after deterministic simulation, input serialization and replay tooling exist. | Latency/loss prototype before committing to matchmaking or accounts. |
+| Online evolution | Extend the room-code P2P friendlies with dedicated hosting/relay, prediction or rollback, reconnect/resume and measured cross-network performance. | Latency/loss and mobile-network trials before committing to matchmaking, accounts or rankings. |
 
 ### Release and rights
 
@@ -128,8 +128,10 @@ The repository contains Nintendo-character imagery and extracted animation
 frames, but no asset-permission inventory. Attribution to an inspiration is not
 a redistribution license. Keep a provenance checklist and obtain appropriate
 permissions or substitute owned/licensed characters, names, art and music
-before a public/commercial release. No external accounts, analytics, purchases
-or online multiplayer are added by this overhaul.
+before a public/commercial release. No external accounts, analytics or purchases
+are added. The later room-code multiplayer addition uses public PeerJS signaling
+and peer-to-peer matches; its privacy and connectivity boundaries are documented
+in the README and shown before connecting.
 
 ## Implemented in this worktree
 
@@ -144,6 +146,7 @@ or online multiplayer are added by this overhaul.
 | Audio | Three arrangement choices, longer four-phrase variation, independent ambience and effects palettes, landing/footstep/coach/hazard cues, audio-clock scheduling, pause handling and a 64-voice budget. |
 | Stadiums | All seven have actionable teaching notes. Cloud decks now interact with balls, lower goal ledges resolve correctly, and lava/icicles have visible warning lanes and audible warnings. |
 | Reliability | Validated/recoverable local saves with visible failures, observable asset loading, portable test imports/runner, reproducible bundle checking and offline font-independent startup. |
+| Online rooms | Six-character invite codes, 1v1/2v2 lobbies, host-owned rules and simulation, guest-owned inputs, shared pause/results/rematch and explicit disconnect cancellation. No online progression rewards, accounts or host migration. |
 | Assets | Twelve character PNGs reduced from 59,909,644 to 17,708,878 bytes (70.4%). Pixel storage per sheet reduced from 36 to 9 MiB. Character, derived-frame and terrain caches are bounded; all 1,248 used atlas frames remain present. |
 
 ### File-by-file source coverage
@@ -181,8 +184,8 @@ executed or that all future combinations are defect-free.
 
 ### Remaining verification boundaries
 
-The completed verification includes 28 Node test entries (including the four
-restored original suites), 28 Chromium browser scenarios, exact bundle drift
+The original overhaul verification included the four restored suites and
+responsive Chromium scenarios, exact bundle drift
 checking, and decoding every image plus checking all 1,248 used character
 frames. Layout coverage includes 1920x1080, 1280x720, 1024x768, 844x390,
 667x375 and 390x844. Guided practice was also completed through real browser
@@ -197,5 +200,5 @@ The portable tool validates/optimizes current atlases rather than reproducing
 all historical art-generation experiments.
 
 Do not treat runtime polish as art licensing, full character re-animation from
-new source poses, measured competitive balance, online multiplayer or a public
-release approval. Those investments are separated in the roadmap above.
+new source poses, measured competitive balance, competitive online infrastructure
+or a public release approval. Those investments are separated in the roadmap above.

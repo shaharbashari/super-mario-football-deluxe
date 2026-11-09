@@ -27,6 +27,7 @@ test('settings contain independent audio, help and motion options', () => {
   assert.equal(settings.motion, 'reduced');
   assert.equal(settings.showTips, false);
   assert.ok(settings.ambienceVolume >= 0 && settings.ambienceVolume <= 1);
+  assert.deepEqual(normalizeSaveData({ onboarding: { seenModes: ['online'] } }).onboarding.seenModes, ['online']);
 });
 
 test('invalid JSON is reported and backed up before a replacement save', () => {

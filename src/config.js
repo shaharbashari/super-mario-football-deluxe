@@ -1161,7 +1161,7 @@ export function normalizeSaveData(value) {
   }
   if (isRecord(value.onboarding)) {
     base.onboarding.completed = value.onboarding.completed === true;
-    const modes = ['practice', '1v1_cpu', '1v1_pvp', '2v2', 'cup', 'tourney', 'trial', 'target_blitz', 'keep_up', 'goalie_gauntlet'];
+    const modes = ['practice', 'online', '1v1_cpu', '1v1_pvp', '2v2', 'cup', 'tourney', 'trial', 'target_blitz', 'keep_up', 'goalie_gauntlet'];
     base.onboarding.seenModes = [...new Set((Array.isArray(value.onboarding.seenModes) ? value.onboarding.seenModes : []).filter(mode => modes.includes(mode)))];
   }
   return base;

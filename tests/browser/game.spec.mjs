@@ -416,6 +416,7 @@ test('all existing mode families launch through their menu flows', async ({ page
     await page.evaluate(() => app._showScreen('menu'));
     await page.locator('#btn-mode-arcade').click();
     await page.locator(`[data-minigame="${mode}"] button`).click();
+    await page.locator('#roster-0-mario').click();
     await page.locator('#btn-start-match').click();
     expect(await page.evaluate(() => app.match.mode)).toBe(mode);
   }
@@ -513,6 +514,45 @@ test('offline file launch has no external font or runtime dependency', async ({ 
   await page.waitForFunction(() => app.art.pendingAssets === 0);
   expect(await page.evaluate(() => app.art.failedAssets)).toEqual([]);
   expect(remoteRequests).toEqual([]);
+});
+
+test('online entry fits a phone and invalid codes never start a connection', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const sockets = [];
+  page.on('websocket', socket => sockets.push(socket.url()));
+  await boot(page);
+  await page.locator('#btn-mode-online').click();
+  await expect(page.locator('#modal-online')).toBeVisible();
+  expect(await page.locator('#modal-online .modal-box').evaluate(box => box.scrollWidth <= box.clientWidth + 1)).toBe(true);
+  await page.locator('#online-code-input').fill('BAD');
+  await page.locator('#online-join').click();
+  await expect(page.locator('#online-status')).toContainText('six-character');
+  expect(await page.evaluate(() => app.online.room.phase)).toBe('idle');
+  expect(sockets).toEqual([]);
+  await page.evaluate(() => {
+    window.Peer = class { on() { return this; } destroy() {} };
+  });
+  await page.locator('#online-create').click();
+  await expect(page.locator('#online-cancel')).toBeVisible();
+  await page.locator('#online-cancel').click();
+  await expect(page.locator('#online-status')).toContainText('canceled');
+  await expect(page.locator('#online-create')).toBeEnabled();
+  await page.evaluate(() => {
+    const room = app.online.room;
+    room.phase = 'lobby'; room.slot = 0; room.code = 'ABCD23'; room.config.mode = 'doubles';
+    room.players = [0, 1, 2, 3].map(slot => ({
+      slot, name: `Player ${slot + 1}`, charId: ['mario', 'luigi', 'peach', 'yoshi'][slot], kitIdx: 0, ready: false,
+    }));
+    app.online._render();
+  });
+  expect(await page.locator('#modal-online .modal-box').evaluate(box => box.scrollWidth <= box.clientWidth + 1)).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#modal-online')).toBeHidden();
+  await page.goto('/#room=abcd23');
+  await expect(page.locator('#modal-online')).toBeVisible();
+  await expect(page.locator('#online-code-input')).toHaveValue('ABCD23');
+  expect(await page.evaluate(() => app.online.room.phase)).toBe('idle');
+  expect(sockets).toEqual([]);
 });
 
 test.describe('touch play', () => {

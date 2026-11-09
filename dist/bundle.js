@@ -1149,7 +1149,7 @@ function normalizeSaveData(value) {
   }
   if (isRecord(value.onboarding)) {
     base.onboarding.completed = value.onboarding.completed === true;
-    const modes = ['practice', '1v1_cpu', '1v1_pvp', '2v2', 'cup', 'tourney', 'trial', 'target_blitz', 'keep_up', 'goalie_gauntlet'];
+    const modes = ['practice', 'online', '1v1_cpu', '1v1_pvp', '2v2', 'cup', 'tourney', 'trial', 'target_blitz', 'keep_up', 'goalie_gauntlet'];
     base.onboarding.seenModes = [...new Set((Array.isArray(value.onboarding.seenModes) ? value.onboarding.seenModes : []).filter(mode => modes.includes(mode)))];
   }
   return base;
@@ -2956,6 +2956,7 @@ function itemMotion(itemId, time) {
 
 // === src/coach.js ===
 const MODE_BRIEFINGS = {
+  online: ['Your team is connected.', 'Every device uses its own P1 controls. P1 and P3 defend the left goal; P2 and P4 defend the right. Pausing pauses everyone. Keep the host’s game tab open until the match ends.'],
   practice: ['Welcome to the pitch.', 'No opponent. No clock. Just you and the ball. I will walk you through five quick skills, one at a time.'],
   '1v1_cpu': ['Your first rivalry.', 'Defend the left goal and attack the right. A jump and a well-timed strike will lift the ball onto the raised goal ledge. Start with Rookie if you are finding your feet.'],
   '1v1_pvp': ['Settle it on the pitch.', 'Player 1 defends the left; Player 2 defends the right. Share a keyboard or use separate controllers. Take a moment to check both players can move.'],
@@ -3046,6 +3047,769 @@ function trialProgress(match) {
   if (trial.specialRule === 'parry_shutout') return `${score} · Parries ${player.stats.parries}/${trial.requiredParries} · Conceded ${match.scores[1]}`;
   if (trial.specialRule === 'no_lava') return `${score} · Lava touches ${player.stats.lavaTouches}${player.stats.lavaTouches ? ' — retry for the star' : ''}`;
   return score;
+}
+
+
+// === src/online-state.js ===
+const ONLINE_VERSION = 1;
+const ONLINE_PREFIX = 'smfd-room-v1-';
+const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const ONLINE_INPUT_KEYS = ['left', 'right', 'up', 'down', 'jumpHeld', 'kickDown', 'lobDown',
+  'upPressed', 'downPressed', 'downReleased', 'jumpPressed', 'jumpReleased', 'kickPressed',
+  'kickReleased', 'lobPressed', 'dashPressed', 'itemPressed'];
+const ONLINE_EDGE_KEYS = ONLINE_INPUT_KEYS.filter(key => key.endsWith('Pressed') || key.endsWith('Released'));
+const ONLINE_DEFAULTS = {
+  mode: 'duel', arenaId: 'meadow', matchDuration: 120, scoreLimit: 5,
+  itemMode: 'standard', stageHazards: true, hyperStrikes: true,
+  equippedBallSkin: 'classic', equippedGoalExplosion: 'confetti',
+};
+const MAX_PACKET_LENGTH = 60000;
+const PLAYER_STATS = 'goals powerShots saves parries hyperStrikes comboPasses itemsUsed kos meteorSpikes wallJumps meteorGoals lavaTouches jumps touches dashes ownGoals';
+const schemas = {
+  player: ['slot team bossScale x y vx vy halfW halfH visualScale squashX squashY shadowY animPhase runPhase strideBounce animLean spinAngle groundPoundTimer kickTimer kickDuration kickPowerRatio chargeTime stunTimer invulnTimer starTimer magnetTimer parryFlashTimer dashTimer jumpsLeft hoverFuel', 'onGround bigHead isClone isHovering hyperReady isHyperSwing fastFalling isAI', 'tag kickType animState groundPoundState heldItem teamColor'],
+  ball: ['id x y vx vy angle angVel spin radius baseRadius targetScale squashX squashY lastKickTime lastTeam freezeTimer burnTimer vanishTimer zeroGTimer scaleTimer', 'hyperActive comboBoosted hyperVoltage', 'auraColor hyperStyle'],
+  courier: ['x y vx vy bubbleX bubbleY', 'active', 'heldItemId'],
+  shell: ['x y vx vy radius timer ownerTeam', '', ''],
+  banana: ['x y vx vy timer ownerTeam', '', ''],
+  torpedo: ['x y vx warnTimer ownerTeam', '', ''],
+  keeper: ['x y baseY timer maxTimer recoilTimer', '', 'side color'],
+  hound: ['anchorX anchorY x y vx vy radius chainLen lungeTimer timer ownerTeam', '', ''],
+  particle: ['x y vx vy size life maxLife rot rotVel gravity', '', 'shape color text'],
+  shockwave: ['x y radius maxRadius lineWidth alpha', '', 'color'],
+  portal: ['x y', '', 'side'],
+  drum: ['x y w bounceTimer', '', ''],
+  icicle: ['x y vy timer', 'active', 'state'],
+  vent: ['x timer', '', 'state'],
+  ring: ['x y r flashTimer', '', ''],
+  bumper: ['x y r flashTimer', '', ''],
+};
+const collections = {
+  players: ['player', 8], balls: ['ball', 16], shells: ['shell', 12], bananas: ['banana', 24],
+  torpedoes: ['torpedo', 24], keepers: ['keeper', 2], hounds: ['hound', 8],
+  particles: ['particle', 24], shockwaves: ['shockwave', 8],
+  portals: ['portal', 2], drumPads: ['drum', 2], icicles: ['icicle', 3],
+  lavaVents: ['vent', 2], bumpers: ['bumper', 3],
+};
+const topSchema = ['time phaseTimer timeRemaining bannerTimer netRippleLeft netRippleRight powLeftTimer powRightTimer shakeMag shakeX shakeY cameraZoom cameraFocusX cameraFocusY', 'unlimitedTime suddenDeath', 'phase bannerText bannerSub bannerColor leftTeamColor rightTeamColor'];
+const numeric = value => typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 1e7;
+const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const assertOnline = (condition, message) => { if (!condition) throw new Error(`Invalid online data: ${message}`); };
+const words = text => text ? text.split(' ') : [];
+function normalizeRoomCode(value) {
+  const code = String(value ?? '').toUpperCase().replace(/[\s-]/g, '');
+  return code.length === 6 && [...code].every(char => ROOM_ALPHABET.includes(char)) ? code : null;
+}
+function createRoomCode() {
+  return [...crypto.getRandomValues(new Uint8Array(6))].map(byte => ROOM_ALPHABET[byte & 31]).join('');
+}
+function onlineInviteUrl(pageUrl, roomCode) {
+  const code = normalizeRoomCode(roomCode);
+  assertOnline(code, 'invite code');
+  let url = new URL(pageUrl);
+  // Local paths and development addresses must not leak into invitations.
+  if (url.protocol !== 'https:' || ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
+    url = new URL('https://shaharbashari.github.io/super-mario-football-deluxe/');
+  }
+  url.username = '';
+  url.password = '';
+  url.search = '';
+  url.hash = `room=${code}`;
+  return url.href;
+}
+function onlineName(value) {
+  return String(value ?? '').replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, '').trim().slice(0, 20) || 'Player';
+}
+function validatePick(value) {
+  assertOnline(record(value) && typeof value.name === 'string' && value.name.length <= 20, 'player name');
+  assertOnline(CHARACTERS.some(character => character.id === value.charId), 'striker');
+  assertOnline(Number.isInteger(value.kitIdx) && value.kitIdx >= 0 && value.kitIdx <= 2, 'kit');
+  return { name: onlineName(value.name), charId: value.charId, kitIdx: value.kitIdx };
+}
+function validateRoomConfig(value) {
+  assertOnline(record(value), 'room rules');
+  const choices = {
+    mode: ['duel', 'doubles'], arenaId: ARENAS.filter(arena => !arena.isRandom).map(arena => arena.id),
+    matchDuration: [60, 120, 180], scoreLimit: [0, 3, 5, 7],
+    itemMode: ['standard', 'competitive', 'off'],
+    equippedBallSkin: BALL_SKINS.map(skin => skin.id), equippedGoalExplosion: GOAL_EXPLOSIONS.map(effect => effect.id),
+  };
+  const result = {};
+  for (const [key, values] of Object.entries(choices)) {
+    assertOnline(values.includes(value[key]), key);
+    result[key] = value[key];
+  }
+  for (const key of ['stageHazards', 'hyperStrikes']) {
+    assertOnline(typeof value[key] === 'boolean', key);
+    result[key] = value[key];
+  }
+  return result;
+}
+function onlineSettings(config, local = DEFAULT_SETTINGS) {
+  return { ...local, ...config, activeMutators: [], ballPreset: 'balanced', aiDifficulty: 'striker', suddenDeathMode: 'golden' };
+}
+function validateLobby(value) {
+  assertOnline(record(value) && normalizeRoomCode(value.code), 'room code');
+  const config = validateRoomConfig(value.config);
+  assertOnline(['lobby', 'match'].includes(value.phase), 'room phase');
+  assertOnline(Array.isArray(value.players) && value.players.length >= 1 && value.players.length <= (config.mode === 'duel' ? 2 : 4), 'room capacity');
+  const slots = new Set();
+  const players = value.players.map(player => {
+    const pick = validatePick(player);
+    assertOnline(Number.isInteger(player.slot) && player.slot >= 0 && player.slot < (config.mode === 'duel' ? 2 : 4) && !slots.has(player.slot), 'player slot');
+    assertOnline(typeof player.ready === 'boolean', 'ready status');
+    slots.add(player.slot);
+    return { ...pick, slot: player.slot, ready: player.ready };
+  });
+  assertOnline(slots.has(0), 'room host');
+  return { code: value.code, config, players, phase: value.phase };
+}
+function validateOnlineInput(value) {
+  assertOnline(record(value), 'input frame');
+  const input = {};
+  for (const key of ONLINE_INPUT_KEYS) {
+    assertOnline(typeof value[key] === 'boolean', `input ${key}`);
+    input[key] = value[key];
+  }
+  return input;
+}
+function encodeOnlinePacket(type, data) {
+  const raw = JSON.stringify({ v: ONLINE_VERSION, type, data });
+  assertOnline(raw.length <= MAX_PACKET_LENGTH, 'packet too large');
+  return raw;
+}
+function decodeOnlinePacket(raw) {
+  assertOnline(typeof raw === 'string' && raw.length <= MAX_PACKET_LENGTH, 'packet size/type');
+  let packet;
+  try { packet = JSON.parse(raw); } catch { throw new Error('Invalid online data: malformed JSON'); }
+  assertOnline(record(packet) && packet.v === ONLINE_VERSION && typeof packet.type === 'string' && record(packet.data), 'protocol version/envelope');
+  return packet;
+}
+
+function primitives(source, schema) {
+  assertOnline(record(source), 'entity');
+  const result = {};
+  for (const key of words(schema[0])) {
+    if (source[key] === undefined) continue;
+    assertOnline(numeric(source[key]), key);
+    if (['radius', 'r', 'halfW', 'halfH', 'visualScale', 'size', 'maxLife', 'maxTimer', 'maxRadius', 'lineWidth', 'cameraZoom'].includes(key)) {
+      assertOnline(source[key] > 0 && source[key] < 10000, key);
+    }
+    result[key] = Math.round(source[key] * 1000) / 1000;
+  }
+  for (const key of words(schema[1])) {
+    if (source[key] === undefined) continue;
+    assertOnline(typeof source[key] === 'boolean', key);
+    result[key] = source[key];
+  }
+  for (const key of words(schema[2])) {
+    if (source[key] == null) continue;
+    assertOnline(typeof source[key] === 'string' && source[key].length <= 128, key);
+    if (/color$/i.test(key)) assertOnline(/^#[0-9a-f]{6}$/i.test(source[key]), key);
+    if (key === 'heldItemId' || key === 'heldItem') assertOnline(ITEMS.some(item => item.id === source[key]), key);
+    result[key] = source[key];
+  }
+  return result;
+}
+
+function entityState(source, kind) {
+  const result = primitives(source, schemas[kind]);
+  assertOnline(numeric(source.netId), 'entity identity');
+  result.netId = source.netId;
+  for (const coordinate of ['x', 'y']) {
+    if (words(schemas[kind][0]).includes(coordinate)) assertOnline(numeric(result[coordinate]), 'entity position');
+  }
+  if (kind === 'player') {
+    assertOnline(CHARACTERS.some(character => character.id === source.charId), 'player character');
+    assertOnline(Number.isInteger(source.kitIdx) && source.kitIdx >= 0 && source.kitIdx < 3, 'player kit');
+    assertOnline(Number.isInteger(result.slot) && result.slot >= 0 && (result.team === 0 || result.team === 1), 'player identity/team');
+    assertOnline(numeric(result.halfW) && numeric(result.halfH) && numeric(result.visualScale), 'player geometry');
+    result.charId = source.charId;
+    result.kitIdx = source.kitIdx;
+    result.stats = primitives(source.stats, [PLAYER_STATS, '', '']);
+    result.dashGhosts = boundedPoints(source.dashGhosts, 8, 'x y alpha');
+  } else if (kind === 'ball') {
+    assertOnline(numeric(result.radius) && numeric(result.x) && numeric(result.y), 'ball geometry');
+    result.trail = boundedPoints(source.trail, 10, 'x y');
+  }
+  return result;
+}
+
+function boundedPoints(source, limit, fields) {
+  assertOnline(Array.isArray(source) && source.length <= limit, 'effect points');
+  return source.map(point => primitives(point, [fields, '', '']));
+}
+class OnlineStateEncoder {
+  constructor() { this.ids = new WeakMap(); this.nextId = 1; this.sequence = 0; }
+
+  entity(source, kind) {
+    if (!this.ids.has(source)) this.ids.set(source, this.nextId++);
+    const value = { ...source, netId: this.ids.get(source) };
+    if (kind === 'player') {
+      value.charId = source.char.id;
+      value.kitIdx = source.char.kitIdx || 0;
+      value.dashGhosts = source.dashGhosts.slice(-8);
+    }
+    if (kind === 'ball') value.trail = source.trail.slice(-10);
+    return entityState(value, kind);
+  }
+
+  capture(match) {
+    const state = { ...primitives(match, topSchema), sequence: this.sequence++,
+      scores: [...match.scores], hype: [...match.hype], courier: this.entity(match.courier, 'courier'),
+      gravityRing: match.gravityRing ? this.entity(match.gravityRing, 'ring') : null,
+      hyperCutIn: match.hyperCutIn?.timer > 0 ? {
+        charId: match.hyperCutIn.char.id, kitIdx: match.hyperCutIn.char.kitIdx || 0, timer: match.hyperCutIn.timer,
+      } : null,
+    };
+    for (const [key, [kind, cap]] of Object.entries(collections)) {
+      state[key] = (match[key] || []).slice(-cap).map(entity => this.entity(entity, kind));
+    }
+    return state;
+  }
+}
+function validateOnlineState(source) {
+  const result = primitives(source, topSchema);
+  for (const field of ['time', 'timeRemaining', 'cameraZoom', 'cameraFocusX', 'cameraFocusY', 'shakeX', 'shakeY', 'bannerTimer']) {
+    assertOnline(numeric(result[field]), field);
+  }
+  assertOnline(Number.isInteger(source.sequence) && source.sequence >= 0, 'state sequence');
+  assertOnline(['countdown', 'playing', 'goal_celebration', 'sudden_death_intro', 'ended'].includes(result.phase), 'match phase');
+  result.sequence = source.sequence;
+  for (const key of ['scores', 'hype']) {
+    assertOnline(Array.isArray(source[key]) && source[key].length === 2 &&
+      source[key].every(value => numeric(value) && value >= 0 && value <= (key === 'hype' ? 100 : 9999)), key);
+    result[key] = [...source[key]];
+  }
+  for (const [key, [kind, cap]] of Object.entries(collections)) {
+    assertOnline(Array.isArray(source[key]) && source[key].length <= cap, key);
+    result[key] = source[key].map(entity => entityState(entity, kind));
+  }
+  assertOnline(result.players.length >= 2 && result.players.length <= 8 && result.balls.length <= 16, 'match entities');
+  result.courier = entityState(source.courier, 'courier');
+  result.gravityRing = source.gravityRing ? entityState(source.gravityRing, 'ring') : null;
+  result.hyperCutIn = null;
+  if (source.hyperCutIn) {
+    const cut = source.hyperCutIn;
+    assertOnline(CHARACTERS.some(character => character.id === cut.charId) &&
+      Number.isInteger(cut.kitIdx) && cut.kitIdx >= 0 && cut.kitIdx < 3 && numeric(cut.timer) && cut.timer >= 0 && cut.timer <= 1, 'hyper cut-in');
+    result.hyperCutIn = { timer: cut.timer, char: getCharacter(cut.charId, cut.kitIdx) };
+  }
+  result.players = result.players.map(player => ({ ...player, char: getCharacter(player.charId, player.kitIdx) }));
+  return result;
+}
+class RemoteMatchView {
+  constructor(config, settings) {
+    this.arena = getArena(config.arenaId);
+    this.settings = onlineSettings(config, settings);
+    this.mode = 'online';
+    this.targets = [];
+    this.gauntletCannon = null;
+    this.phase = 'countdown';
+    this.time = 0;
+    this.timeRemaining = config.matchDuration;
+    this.scores = [0, 0];
+    this.hype = [0, 0];
+    this.courier = { active: false, x: 960, y: 335 };
+    this.cameraZoom = 1;
+    this.cameraFocusX = 960;
+    this.cameraFocusY = 540;
+    this.shakeX = this.shakeY = 0;
+    this.netRippleLeft = this.netRippleRight = this.powLeftTimer = this.powRightTimer = 0;
+    this.bannerTimer = 0;
+    this.suddenDeath = false;
+    this.unlimitedTime = false;
+    this.hyperCutIn = null;
+    this.gravityRing = null;
+    this.leftTeamColor = '#e63946';
+    this.rightTeamColor = '#22c55e';
+    this.lastSequence = -1;
+    for (const key of Object.keys(collections)) this[key] = [];
+  }
+
+  hasMutator() { return false; }
+  dispose() { this.target = null; }
+
+  receive(state) {
+    if (state.sequence <= this.lastSequence) return false;
+    this.lastSequence = state.sequence;
+    this.from = {};
+    for (const key of Object.keys(collections)) this.from[key] = this[key];
+    this.target = state;
+    this.age = 0;
+    const collectionsSet = new Set(Object.keys(collections));
+    for (const [key, value] of Object.entries(state)) if (!collectionsSet.has(key)) this[key] = value;
+    if (!this.players.length) for (const key of Object.keys(collections)) this[key] = state[key];
+    return true;
+  }
+
+  update(dt) {
+    if (!this.target) return;
+    this.age = Math.min(0.05, this.age + dt);
+    const blend = this.age / 0.05;
+    for (const key of Object.keys(collections)) {
+      if (['particles', 'shockwaves'].includes(key)) { this[key] = this.target[key]; continue; }
+      const previous = new Map(this.from[key].map(entity => [entity.netId, entity]));
+      this[key] = this.target[key].map(entity => {
+        const from = previous.get(entity.netId);
+        if (!from || !numeric(entity.x) || Math.hypot(entity.x - from.x, entity.y - from.y) > 250) return entity;
+        const rendered = { ...entity };
+        for (const field of ['x', 'y', 'angle', 'squashX', 'squashY', 'visualScale']) {
+          if (numeric(from[field]) && numeric(entity[field])) rendered[field] = from[field] + (entity[field] - from[field]) * blend;
+        }
+        return rendered;
+      });
+    }
+    if (this.settings.reducedMotion) {
+      this.shakeX = this.shakeY = 0;
+      this.cameraZoom = 1;
+      this.cameraFocusX = 960;
+      this.cameraFocusY = 540;
+    }
+  }
+}
+
+
+// === src/online.js ===
+
+const onlineErrorText = error => {
+  const messages = {
+    'peer-unavailable': 'Room not found. Check the code and make sure the host has the room open.',
+    'unavailable-id': 'That room code is already in use. Create a new room.',
+    'browser-incompatible': 'This browser cannot use WebRTC data connections. Try a current browser.',
+    'network': 'The connection service is unavailable. Check your connection and try again.',
+    'server-error': 'The connection service is unavailable. Try again shortly.',
+    'socket-error': 'The connection to the room service failed. Check your network.',
+    'socket-closed': 'The room service disconnected. Reopen the room to reconnect.',
+    'webrtc': 'The peer connection failed. A firewall or restricted network may be blocking it.',
+  };
+  return messages[error?.type] || error?.message || 'The online connection failed.';
+};
+class OnlineRoom {
+  constructor({ peerFactory = (id, options) => new window.Peer(id, options), onEvent = () => {} } = {}) {
+    this.peerFactory = peerFactory;
+    this.onEvent = onEvent;
+    this.generation = 0;
+    this.phase = 'idle';
+    this.connections = new Map();
+    this.players = [];
+    this.config = { ...ONLINE_DEFAULTS };
+    this.pausedSlots = new Set();
+    this.remoteInputs = new Map();
+    this.timers = new Set();
+    this.slot = -1;
+    this.matchId = 0;
+    this.inputSequence = 0;
+    this.latency = 0;
+  }
+
+  get active() { return this.phase !== 'idle' && this.phase !== 'connecting'; }
+  get isHost() { return this.slot === 0; }
+  get paused() { return this.pausedSlots.size > 0; }
+  get capacity() { return this.config.mode === 'doubles' ? 4 : 2; }
+  get canStart() { return this.isHost && this.phase === 'lobby' && this.players.length >= 2 && this.players.every(player => player.ready); }
+
+  _later(callback, ms) {
+    const timer = setTimeout(() => { this.timers.delete(timer); callback(); }, ms);
+    this.timers.add(timer);
+    return timer;
+  }
+
+  _cancel(timer) { clearTimeout(timer); this.timers.delete(timer); }
+  _event(type, data) { this.onEvent(type, data); }
+
+  async _open(id) {
+    const generation = this.generation;
+    if (typeof window !== 'undefined' && !window.RTCPeerConnection) throw new Error('This browser does not support WebRTC.');
+    const peer = this.peerFactory(id, { secure: true, debug: 0 });
+    this.peer = peer;
+    return new Promise((resolve, reject) => {
+      this.pendingOpenReject = reject;
+      let opened = false;
+      const timeout = this._later(() => reject(new Error('Connection service timed out. Check your network and try again.')), 20000);
+      peer.on('open', () => {
+        if (generation !== this.generation) { peer.destroy(); return; }
+        opened = true;
+        this.pendingOpenReject = null;
+        this._cancel(timeout);
+        resolve(peer);
+      });
+      peer.on('error', error => {
+        if (generation !== this.generation) return;
+        this._cancel(timeout);
+        const message = onlineErrorText(error);
+        if (!opened) { this.pendingOpenReject = null; reject(new Error(message)); }
+        else this._fail(message);
+      });
+      peer.on('disconnected', () => {
+        if (generation === this.generation && opened) this._fail('The room service disconnected. Reopen the room to reconnect.');
+      });
+      peer.on('close', () => {
+        if (generation === this.generation && opened) this._fail('The online room connection closed.');
+      });
+    });
+  }
+
+  async create(pick, config = ONLINE_DEFAULTS) {
+    this.close();
+    this.phase = 'connecting';
+    this._event('status', 'Creating room…');
+    const generation = this.generation;
+    try {
+      this.config = validateRoomConfig(config);
+      this.code = createRoomCode();
+      const peer = await this._open(ONLINE_PREFIX + this.code);
+      if (generation !== this.generation) return;
+      this.slot = 0;
+      this.phase = 'lobby';
+      this.players = [{ ...validatePick(pick), slot: 0, ready: false }];
+      peer.on('connection', connection => this._accept(connection, generation));
+      this._heartbeat();
+      this._publishLobby();
+    } catch (error) {
+      if (generation === this.generation) this._fail(error.message);
+    }
+  }
+
+  async join(code, pick) {
+    const normalized = normalizeRoomCode(code);
+    if (!normalized) throw new Error('Enter the six-character room code. Letters are not case-sensitive.');
+    this.close();
+    this.phase = 'connecting';
+    this.code = normalized;
+    this.pick = validatePick(pick);
+    this._event('status', 'Connecting to the room…');
+    const generation = this.generation;
+    try {
+      const peer = await this._open(undefined);
+      if (generation !== this.generation) return;
+      const connection = peer.connect(ONLINE_PREFIX + normalized, {
+        label: 'smfd-room', serialization: 'json', reliable: true,
+        metadata: { app: ONLINE_PREFIX, version: ONLINE_VERSION },
+      });
+      this.hostConnection = connection;
+      this.lastHostMessage = performance.now();
+      this.joinTimeout = this._later(() => this._fail('Could not reach the host. Check the code, or try a different network; some networks block peer-to-peer connections.'), 25000);
+      connection.on('open', () => {
+        if (generation !== this.generation) return;
+        this._send(connection, 'hello', this.pick);
+      });
+      connection.on('data', raw => {
+        if (generation !== this.generation) return;
+        this.lastHostMessage = performance.now();
+        try { this._guestPacket(decodeOnlinePacket(raw)); } catch (error) { this._fail(error.message); }
+      });
+      connection.on('close', () => { if (generation === this.generation) this._fail('The host left or disconnected. Create or join another room.'); });
+      connection.on('error', error => { if (generation === this.generation) this._fail(onlineErrorText(error)); });
+    } catch (error) {
+      if (generation === this.generation) this._fail(error.message);
+    }
+  }
+
+  _accept(connection, generation) {
+    if (generation !== this.generation || !this.isHost) { connection.close(); return; }
+    if (this.connections.size >= 6 || this.connections.has(connection.peer)) { connection.close(); return; }
+    const info = { connection, slot: -1, lastSeen: performance.now(), sequence: -1, rateAt: performance.now(), rate: 0 };
+    this.connections.set(connection.peer, info);
+    info.timeout = this._later(() => this._drop(info, 'Player handshake timed out.'), 15000);
+    connection.on('data', raw => {
+      if (generation !== this.generation) return;
+      try {
+        const now = performance.now();
+        if (now - info.rateAt >= 1000) { info.rateAt = now; info.rate = 0; }
+        if (++info.rate > 120) throw new Error('Too many messages from a player.');
+        if (typeof raw !== 'string' || raw.length > 2048) throw new Error('Player control packet is too large.');
+        info.lastSeen = now;
+        this._hostPacket(info, decodeOnlinePacket(raw));
+      } catch (error) { this._drop(info, error.message); }
+    });
+    connection.on('close', () => { if (generation === this.generation) this._drop(info, 'A player disconnected.'); });
+    connection.on('error', error => { if (generation === this.generation) this._drop(info, onlineErrorText(error)); });
+  }
+
+  _hostPacket(info, packet) {
+    const { type, data } = packet;
+    if (info.slot < 0) {
+      if (type !== 'hello') throw new Error('A room handshake is required.');
+      if (info.connection.metadata?.app !== ONLINE_PREFIX || info.connection.metadata?.version !== ONLINE_VERSION) {
+        throw new Error('Game versions do not match. Refresh both game tabs.');
+      }
+      const pick = validatePick(data);
+      if (this.phase !== 'lobby') { this._reject(info, 'A match is in progress. Join after the round ends.'); return; }
+      if (this.players.length >= this.capacity) { this._reject(info, 'This room is full.'); return; }
+      info.slot = [1, 2, 3].find(slot => slot < this.capacity && !this.players.some(player => player.slot === slot));
+      this._cancel(info.timeout);
+      this.players.push({ ...pick, slot: info.slot, ready: false });
+      this.players.sort((a, b) => a.slot - b.slot);
+      this._send(info.connection, 'welcome', { slot: info.slot, lobby: this._lobby() });
+      this._publishLobby();
+      return;
+    }
+    if (type === 'ping') { this._send(info.connection, 'pong', this._ping(data)); return; }
+    if (type === 'leave') { this._drop(info, 'A player left the room.'); return; }
+    if (type === 'pick') {
+      if (this.phase !== 'lobby') return;
+      Object.assign(this.players.find(player => player.slot === info.slot), validatePick(data), { ready: false });
+      this._publishLobby();
+    } else if (type === 'ready') {
+      if (typeof data.ready !== 'boolean') throw new Error('Invalid ready status.');
+      if (this.phase !== 'lobby') return;
+      this.players.find(player => player.slot === info.slot).ready = data.ready;
+      this._publishLobby();
+    } else if (type === 'input') {
+      if (this.phase !== 'match' || data.matchId !== this.matchId) return;
+      if (!Number.isInteger(data.sequence) || data.sequence < 0) throw new Error('Invalid input sequence.');
+      if (data.sequence <= info.sequence) return;
+      const input = validateOnlineInput(data.input);
+      info.sequence = data.sequence;
+      const old = this.remoteInputs.get(info.slot);
+      for (const key of ONLINE_EDGE_KEYS) input[key] ||= old?.input[key] || false;
+      this.remoteInputs.set(info.slot, { input, at: performance.now() });
+    } else if (type === 'pause') {
+      if (typeof data.paused !== 'boolean') throw new Error('Invalid pause request.');
+      if (this.phase === 'match' && data.matchId === this.matchId) this._setPause(info.slot, data.paused);
+    } else throw new Error('Unsupported player message.');
+  }
+
+  _guestPacket({ type, data }) {
+    if (type === 'error') {
+      if (typeof data.message !== 'string' || data.message.length > 200) throw new Error('Invalid room error.');
+      this._fail(data.message); return;
+    }
+    if (type === 'welcome') {
+      if (this.slot >= 0 || !Number.isInteger(data.slot) || data.slot < 1 || data.slot > 3) throw new Error('Invalid room assignment.');
+      const lobby = validateLobby(data.lobby);
+      if (lobby.code !== this.code || !lobby.players.some(player => player.slot === data.slot)) throw new Error('Room assignment mismatch.');
+      this.slot = data.slot;
+      this._cancel(this.joinTimeout);
+      this._applyLobby(lobby);
+      this._heartbeat();
+      return;
+    }
+    if (this.slot < 0) throw new Error('The host has not assigned a player slot.');
+    if (type === 'lobby') this._applyLobby(validateLobby(data));
+    else if (type === 'start') {
+      const lobby = validateLobby(data.lobby);
+      if (lobby.code !== this.code || !Number.isInteger(data.matchId) || data.matchId <= this.matchId) throw new Error('Invalid match start.');
+      this._applyLobby(lobby);
+      this.matchId = data.matchId;
+      this.phase = 'match';
+      this.pausedSlots.clear();
+      this._event('start', { matchId: this.matchId, config: this.config, players: this.players });
+    } else if (type === 'state' || type === 'finish') {
+      if (data.matchId !== this.matchId || this.phase !== 'match') return;
+      const state = validateOnlineState(data.state);
+      this._event(type, state);
+      if (type === 'finish') {
+        this.phase = 'lobby';
+        this.pausedSlots.clear();
+        this.players.forEach(player => { player.ready = false; });
+        this._event('lobby', this._lobby());
+      }
+    } else if (type === 'pause') {
+      if (data.matchId !== this.matchId || this.phase !== 'match') return;
+      if (!Array.isArray(data.slots) || data.slots.length > 4 || data.slots.some(slot => !this.players.some(player => player.slot === slot))) throw new Error('Invalid pause state.');
+      this.pausedSlots = new Set(data.slots);
+      this._event('pause', [...this.pausedSlots]);
+    } else if (type === 'abort') {
+      if (data.matchId !== this.matchId || typeof data.message !== 'string' || data.message.length > 200) throw new Error('Invalid round cancellation.');
+      this.phase = 'lobby';
+      this.pausedSlots.clear();
+      this._event('abort', data.message);
+    } else if (type === 'pong') {
+      const ping = this._ping(data);
+      this.latency = Math.max(0, Math.min(9999, Math.round(performance.now() - ping.at)));
+      this._event('latency', this.latency);
+    } else throw new Error('Unsupported host message.');
+  }
+
+  _ping(data) {
+    if (typeof data.at !== 'number' || !Number.isFinite(data.at) || data.at < 0) throw new Error('Invalid heartbeat.');
+    return { at: data.at };
+  }
+
+  _applyLobby(lobby) {
+    if (lobby.code !== this.code || !lobby.players.some(player => player.slot === this.slot)) throw new Error('Room membership changed unexpectedly.');
+    this.config = lobby.config;
+    this.players = lobby.players;
+    this.phase = lobby.phase;
+    this._event('lobby', lobby);
+  }
+
+  _lobby() { return { code: this.code, config: this.config, players: this.players, phase: this.phase }; }
+  _publishLobby() { const lobby = this._lobby(); this._broadcast('lobby', lobby); this._event('lobby', lobby); }
+
+  setPick(pick) {
+    const valid = validatePick(pick);
+    if (this.phase !== 'lobby') throw new Error('Selections are locked during a match.');
+    if (this.isHost) {
+      Object.assign(this.players[0], valid, { ready: false });
+      this._publishLobby();
+    } else this._send(this.hostConnection, 'pick', valid);
+  }
+
+  setReady(ready) {
+    if (this.phase !== 'lobby') return;
+    if (this.isHost) {
+      this.players[0].ready = Boolean(ready);
+      this._publishLobby();
+    } else this._send(this.hostConnection, 'ready', { ready: Boolean(ready) });
+  }
+
+  setConfig(config) {
+    if (!this.isHost || this.phase !== 'lobby') throw new Error('Only the host can change room rules in the lobby.');
+    const valid = validateRoomConfig(config);
+    if (valid.mode === 'duel' && this.players.some(player => player.slot > 1)) throw new Error('Players 3 and 4 must leave before switching to 1v1.');
+    this.config = valid;
+    this.players.forEach(player => { player.ready = false; });
+    this._publishLobby();
+  }
+
+  start() {
+    if (!this.canStart) throw new Error('At least two connected players must be ready.');
+    this.phase = 'match';
+    this.matchId++;
+    this.pausedSlots.clear();
+    this.remoteInputs.clear();
+    for (const info of this.connections.values()) info.sequence = -1;
+    const data = { matchId: this.matchId, lobby: this._lobby() };
+    this._broadcast('start', data);
+    this._event('start', { matchId: this.matchId, config: this.config, players: this.players });
+  }
+
+  sendInput(input) {
+    if (this.phase !== 'match' || this.isHost) return;
+    const frame = Object.fromEntries(ONLINE_INPUT_KEYS.map(key => [key, Boolean(input[key])]));
+    this._send(this.hostConnection, 'input', { matchId: this.matchId, sequence: this.inputSequence++, input: frame });
+  }
+
+  takeInput(slot) {
+    const entry = this.remoteInputs.get(slot);
+    if (!entry || this.paused || performance.now() - entry.at > 400) return {};
+    const input = { ...entry.input };
+    for (const key of ONLINE_EDGE_KEYS) entry.input[key] = false;
+    return input;
+  }
+
+  requestPause(paused) {
+    if (this.phase !== 'match') return;
+    if (this.isHost) this._setPause(0, paused);
+    else this._send(this.hostConnection, 'pause', { matchId: this.matchId, paused: Boolean(paused) });
+  }
+
+  _setPause(slot, paused) {
+    if (paused) this.pausedSlots.add(slot);
+    else this.pausedSlots.delete(slot);
+    this.remoteInputs.clear();
+    this._broadcast('pause', { matchId: this.matchId, slots: [...this.pausedSlots] });
+    this._event('pause', [...this.pausedSlots]);
+  }
+
+  sendState(state) {
+    if (this.isHost && this.phase === 'match') this._broadcast('state', { matchId: this.matchId, state }, true);
+  }
+
+  finish(state) {
+    if (!this.isHost || this.phase !== 'match') return;
+    this._broadcast('finish', { matchId: this.matchId, state });
+    this.phase = 'lobby';
+    this.pausedSlots.clear();
+    this.remoteInputs.clear();
+    this.players.forEach(player => { player.ready = false; });
+    this._event('finish', validateOnlineState(state));
+    this._publishLobby();
+  }
+
+  _send(connection, type, data, disposable = false) {
+    if (!connection?.open) {
+      if (disposable) return false;
+      throw new Error('The peer connection is no longer open.');
+    }
+    const buffered = connection.dataChannel?.bufferedAmount || 0;
+    if (disposable && buffered > 96000) return false;
+    if (buffered > 2000000) throw new Error('The connection is too slow to keep the room synchronized.');
+    connection.send(encodeOnlinePacket(type, data));
+    return true;
+  }
+
+  _broadcast(type, data, disposable = false) {
+    for (const info of [...this.connections.values()]) {
+      if (info.slot < 0) continue;
+      try { this._send(info.connection, type, data, disposable); }
+      catch (error) { this._drop(info, error.message); }
+    }
+  }
+
+  _reject(info, message) {
+    this._send(info.connection, 'error', { message });
+    this._later(() => this._drop(info, message), 150);
+  }
+
+  _drop(info, message) {
+    if (!this.connections.has(info.connection.peer)) return;
+    this.connections.delete(info.connection.peer);
+    this._cancel(info.timeout);
+    info.connection.close();
+    if (info.slot < 0) {
+      console.warn('Online connection rejected:', message);
+      return;
+    }
+    this.players = this.players.filter(player => player.slot !== info.slot);
+    this.remoteInputs.delete(info.slot);
+    this.pausedSlots.delete(info.slot);
+    if (this.phase === 'match') {
+      this._broadcast('abort', { matchId: this.matchId, message: `${message} The round was canceled; ready up again.` });
+      this.phase = 'lobby';
+      this.pausedSlots.clear();
+      this.players.forEach(player => { player.ready = false; });
+      this._event('abort', `${message} The round was canceled; ready up again.`);
+    }
+    this._publishLobby();
+  }
+
+  _heartbeat() {
+    clearInterval(this.heartbeat);
+    this.heartbeat = setInterval(() => this._tickHeartbeat(), 1000);
+  }
+
+  _tickHeartbeat() {
+    const now = performance.now();
+    if (this.isHost) {
+      for (const info of [...this.connections.values()]) {
+        if (info.slot >= 0 && now - info.lastSeen > 8000) this._drop(info, 'A player stopped responding.');
+      }
+    } else {
+      if (now - this.lastHostMessage > 8000) { this._fail('The host stopped responding. The room has closed.'); return; }
+      try { this._send(this.hostConnection, 'ping', { at: now }); } catch (error) { this._fail(error.message); }
+    }
+  }
+
+  _fail(message) {
+    console.warn('Online room:', message);
+    this.close();
+    this._event('error', message);
+  }
+
+  close() {
+    this.generation++;
+    this.pendingOpenReject?.(new Error('Room connection canceled.'));
+    this.pendingOpenReject = null;
+    clearInterval(this.heartbeat);
+    for (const timer of this.timers) clearTimeout(timer);
+    this.timers.clear();
+    for (const info of this.connections.values()) info.connection.close();
+    this.connections.clear();
+    this.hostConnection?.close();
+    this.peer?.destroy();
+    this.peer = null;
+    this.hostConnection = null;
+    this.players = [];
+    this.phase = 'idle';
+    this.slot = -1;
+    this.pausedSlots.clear();
+    this.remoteInputs.clear();
+    this.matchId = 0;
+    this.latency = 0;
+  }
 }
 
 
@@ -4884,7 +5648,7 @@ class ArtRenderer {
     const extraHeadH = player.bigHead ? 28 * scale : 0;
     const tagY = player.y + (52 - drawSize * metrics.footY) * scale - 18 - extraHeadH;
     ctx.fillStyle = 'rgba(12, 18, 36, 0.84)';
-    ctx.strokeStyle = player.hyperReady ? '#fde047' : ch.primary;
+    ctx.strokeStyle = player.hyperReady ? '#fde047' : player.teamColor || ch.primary;
     ctx.lineWidth = player.hyperReady ? 3.8 : 2.8;
     this.roundRect(ctx, player.x - 27, tagY - 12, 54, 23, 9);
     ctx.fill();
@@ -5978,6 +6742,7 @@ class MatchSimulation {
       slot: cfg.slot ?? idx,
       controlSlot: cfg.controlSlot ?? cfg.slot ?? idx,
       team: cfg.team,
+      teamColor: cfg.teamColor,
       tag: cfg.tag || (cfg.isAI ? 'CPU' : `P${idx + 1}`),
       isAI: Boolean(cfg.isAI),
       aiDifficulty: cfg.aiDifficulty || null,
@@ -8557,6 +9322,7 @@ class MatchSimulation {
               slot: this.cloneIdCounter++,
               team: p.team,
               tag: 'CLONE',
+              teamColor: p.teamColor,
               charId: p.char.id,
               kitIdx: p.char.kitIdx || 0,
               isAI: true,
@@ -8949,8 +9715,434 @@ class MatchSimulation {
 }
 
 
+// === src/online-ui.js ===
+class OnlineController {
+  constructor(app) {
+    this.app = app;
+    this.room = new OnlineRoom({ onEvent: (type, data) => this._event(type, data) });
+    this.inMatch = false;
+    this.navigating = false;
+    this.localPause = false;
+    this.pendingInput = {};
+    this.inputAge = 0;
+    this.snapshotAge = 0;
+    this.lastState = null;
+    this.result = null;
+    this.notice = '';
+    this.readyPending = false;
+    this._bind();
+    window.addEventListener('pagehide', () => this.room.close());
+    window.addEventListener('hashchange', () => this._readInvite());
+    queueMicrotask(() => this._readInvite());
+  }
+
+  get activeMatch() { return this.inMatch; }
+  get guestMatch() { return this.inMatch && !this.room.isHost; }
+  _element(id) { return document.getElementById(id); }
+
+  _readInvite() {
+    const raw = new URLSearchParams(location.hash.slice(1)).get('room');
+    if (raw === null) return;
+    const code = normalizeRoomCode(raw);
+    if (this.room.phase !== 'idle') {
+      if (code !== this.room.code) this.app._pushToast('Another room invite', 'Leave your current room before joining a different one.', '🌐');
+      return;
+    }
+    this.open();
+    this._element('online-code-input').value = code || raw.slice(0, 12);
+    this._element('online-code-input').focus();
+    if (!code) this._status('This invite has an invalid room code. Enter a six-character code from your host.', true);
+  }
+
+  _status(message, error = false) {
+    const status = this._element('online-status');
+    status.textContent = message;
+    status.classList.toggle('error', error);
+    this._element('online-connect-actions').inert = this.room.phase === 'connecting';
+    this._element('online-player-pick').inert = this.inMatch || this.room.phase === 'connecting';
+    this._element('online-cancel').classList.toggle('hidden', this.room.phase !== 'connecting');
+  }
+
+  async _run(action) {
+    this.notice = '';
+    try { await action(); }
+    catch (error) {
+      console.warn('Online action:', error.message);
+      this._status(error.message, true);
+    }
+  }
+
+  _bind() {
+    this._element('btn-mode-online').addEventListener('click', () => this.open());
+    this._element('online-create').addEventListener('click', () => this._run(() => {
+      if (typeof window.Peer !== 'function') throw new Error('The online library did not load. Refresh the game; offline modes remain available.');
+      return this.room.create(this._pick(), {
+        ...ONLINE_DEFAULTS, equippedBallSkin: this.app.settings.equippedBallSkin,
+        equippedGoalExplosion: this.app.settings.equippedGoalExplosion,
+      });
+    }));
+    this._element('online-join').addEventListener('click', () => this._run(() => {
+      if (typeof window.Peer !== 'function') throw new Error('The online library did not load. Refresh the game; offline modes remain available.');
+      return this.room.join(this._element('online-code-input').value, this._pick());
+    }));
+    this._element('online-code-input').addEventListener('keydown', event => {
+      if (event.key === 'Enter' && this.room.phase === 'idle') {
+        event.preventDefault();
+        this._element('online-join').click();
+      }
+    });
+    this._element('online-cancel').addEventListener('click', () => { this.room.close(); this._render(); this._status('Connection canceled.'); });
+    this._element('online-leave').addEventListener('click', () => this.leave());
+    this._element('online-copy').addEventListener('click', () => this._run(async () => {
+      const link = onlineInviteUrl(location.href, this.room.code);
+      try {
+        await navigator.clipboard.writeText(link);
+        this._status('Invite link copied. Your friend can also enter the room code.');
+      } catch (error) {
+        console.info('Clipboard unavailable:', error.message);
+        this._status(`Clipboard unavailable. Share room code ${this.room.code} manually.`);
+      }
+    }));
+    this._element('online-ready').addEventListener('click', () => this._run(async () => {
+      const player = this.room.players.find(player => player.slot === this.room.slot);
+      if (!player || this.readyPending) return;
+      if (!player.ready) {
+        const generation = this.room.generation;
+        this.readyPending = true;
+        this._element('online-ready').disabled = true;
+        try {
+          const deadline = performance.now() + 15000;
+          while (this.room.players.some(member => !this.app.art._getCharSheet(getCharacter(member.charId, member.kitIdx)))) {
+            if (generation !== this.room.generation) return;
+            if (performance.now() > deadline || this.room.players.some(member => this.app.art.failedAssets.includes(`char_${member.charId}`))) {
+              throw new Error('Striker artwork could not load. Check your connection and refresh before playing.');
+            }
+            this._status('Loading striker artwork before readying up…');
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+          if (generation !== this.room.generation) return;
+        } finally {
+          this.readyPending = false;
+          this._element('online-ready').disabled = false;
+        }
+      }
+      this.room.setReady(!player.ready);
+    }));
+    this._element('online-start').addEventListener('click', () => this._run(() => this.room.start()));
+    this._element('online-char').replaceChildren(...CHARACTERS.map(character => {
+      const option = document.createElement('option');
+      option.value = character.id;
+      option.textContent = character.name;
+      option.disabled = !isCharUnlocked(this.app.save, character.id);
+      return option;
+    }));
+    this._element('online-arena').replaceChildren(...ARENAS.filter(arena => !arena.isRandom).map(arena => {
+      const option = document.createElement('option');
+      option.value = arena.id;
+      option.textContent = arena.name;
+      return option;
+    }));
+    for (const id of ['online-name', 'online-char', 'online-kit']) {
+      this._element(id).addEventListener('change', () => this._run(() => {
+        if (id === 'online-char') this._updateKits();
+        if (this.room.active) this.room.setPick(this._pick());
+      }));
+    }
+    for (const id of ['online-format', 'online-arena', 'online-duration', 'online-score', 'online-items', 'online-hazards', 'online-hyper']) {
+      this._element(id).addEventListener('change', () => this._run(() => this.room.setConfig({
+        ...this.room.config,
+        mode: this._element('online-format').value,
+        arenaId: this._element('online-arena').value,
+        matchDuration: Number(this._element('online-duration').value),
+        scoreLimit: Number(this._element('online-score').value),
+        itemMode: this._element('online-items').value,
+        stageHazards: this._element('online-hazards').checked,
+        hyperStrikes: this._element('online-hyper').checked,
+      })));
+    }
+    this._updateKits();
+  }
+
+  _updateKits() {
+    const character = getCharacter(this._element('online-char').value);
+    const previous = this._element('online-kit').value || '0';
+    this._element('online-kit').replaceChildren(...character.kits.map((kit, index) => {
+      const option = document.createElement('option');
+      option.value = String(index);
+      option.textContent = kit.name;
+      return option;
+    }));
+    this._element('online-kit').value = previous;
+  }
+
+  _pick() {
+    return {
+      name: onlineName(this._element('online-name').value),
+      charId: this._element('online-char').value,
+      kitIdx: Number(this._element('online-kit').value),
+    };
+  }
+
+  open() {
+    this._render();
+    this.app._openModal('modal-online');
+    if (this.room.phase === 'idle') {
+      this._status('Create a room, or enter a friend’s six-character code. Each device controls one striker.');
+      this._element('online-create').focus();
+    } else this._element('online-ready').focus();
+  }
+
+  _render() {
+    const active = this.room.active;
+    this._element('online-entry').classList.toggle('hidden', active);
+    this._element('online-lobby').classList.toggle('hidden', !active);
+    this._element('online-player-pick').inert = this.inMatch || this.room.phase === 'connecting';
+    for (const option of this._element('online-char').options) option.disabled = !isCharUnlocked(this.app.save, option.value);
+    if (!active) return;
+    this._element('online-room-code').textContent = this.room.code;
+    this._element('online-slot-label').textContent = `YOU ARE P${this.room.slot + 1} · ${this.room.isHost ? 'HOST' : 'GUEST'} · USE YOUR P1 CONTROLS`;
+    const players = this._element('online-players');
+    players.replaceChildren();
+    for (let slot = 0; slot < this.room.capacity; slot++) {
+      const member = this.room.players.find(player => player.slot === slot);
+      const card = document.createElement('div');
+      card.className = `online-player ${slot % 2 ? 'away' : 'home'}`;
+      const title = document.createElement('strong');
+      title.textContent = member ? `P${slot + 1} · ${member.name}${slot === 0 ? ' (Host)' : ''}`
+        : `P${slot + 1} · ${this.room.capacity === 4 ? 'CPU if empty' : 'Waiting for a player'}`;
+      const detail = document.createElement('span');
+      detail.textContent = member ? `${getCharacter(member.charId).name} · ${member.ready ? 'READY' : 'Not ready'}` : 'Open slot · share the room code';
+      const team = document.createElement('small');
+      team.textContent = `TEAM ${slot % 2 + 1}`;
+      card.append(title, detail, team);
+      players.append(card);
+      if (member) this.app.art._getCharSheet(getCharacter(member.charId, member.kitIdx));
+    }
+    const own = this.room.players.find(player => player.slot === this.room.slot);
+    this._element('online-ready').textContent = own?.ready ? 'NOT READY' : 'READY';
+    this._element('online-ready').setAttribute('aria-pressed', String(Boolean(own?.ready)));
+    this._element('online-ready').disabled = this.readyPending;
+    this._element('online-start').classList.toggle('hidden', !this.room.isHost);
+    this._element('online-start').disabled = !this.room.canStart;
+    this._element('online-rules').disabled = !this.room.isHost;
+    const config = this.room.config;
+    for (const [id, value] of Object.entries({
+      'online-format': config.mode, 'online-arena': config.arenaId,
+      'online-duration': config.matchDuration, 'online-score': config.scoreLimit, 'online-items': config.itemMode,
+    })) this._element(id).value = String(value);
+    this._element('online-hazards').checked = config.stageHazards;
+    this._element('online-hyper').checked = config.hyperStrikes;
+    const result = this._element('online-result');
+    result.classList.toggle('hidden', !this.result);
+    if (this.result) result.textContent = `TEAM ${this.result.scores[0] > this.result.scores[1] ? 1 : 2} WINS · ${this.result.scores[0]} — ${this.result.scores[1]} · Ready up for a rematch.`;
+    if (this.room.phase === 'lobby') this._status(this.room.canStart ? 'Everyone is ready. The host can kick off.' : 'At least two players must be ready. Empty 2v2 slots use CPU teammates.');
+    if (this.notice) this._status(this.notice, true);
+  }
+
+  _event(type, data) {
+    if (type === 'status') this._status(data);
+    else if (type === 'lobby') this._render();
+    else if (type === 'start') this._start(data);
+    else if (type === 'state') {
+      if (!this.guestMatch) return;
+      if (this.remote.receive(data)) {
+        this._remoteSounds(this.lastState, data);
+        this.lastState = data;
+      }
+    } else if (type === 'pause') this._applyPause();
+    else if (type === 'finish') this._finish(data);
+    else if (type === 'abort') {
+      this.notice = data;
+      this._stopMatch();
+      this.app._openModal('modal-online');
+      this._status(data, true);
+    } else if (type === 'error') {
+      this.leave();
+      this.open();
+      this._status(data, true);
+    } else if (type === 'latency') this._updateBadge();
+  }
+
+  _start({ config, players }) {
+    const app = this.app;
+    this.inMatch = true;
+    this.navigating = true;
+    this.localPause = false;
+    this.result = null;
+    this.notice = '';
+    this.lastState = null;
+    this.pendingInput = {};
+    this.inputAge = this.snapshotAge = 0;
+    app.match?.dispose();
+    app.practice = null;
+    app.selectedMode = 'online';
+    app.ai = new AIController();
+    const settings = { ...onlineSettings(config, app.settings), reducedMotion: app.reducedMotion };
+    if (this.room.isHost) {
+      this.encoder = new OnlineStateEncoder();
+      const playersConfig = Array.from({ length: this.room.capacity }, (_, slot) => {
+        const member = players.find(player => player.slot === slot);
+        return {
+          slot, controlSlot: slot, team: slot % 2, tag: member ? `P${slot + 1}` : `CPU${slot + 1}`,
+          isAI: !member, charId: member?.charId || CHARACTERS[(slot + 1) % 6].id,
+          kitIdx: member?.kitIdx || 0, role: slot >= 2 ? 'defender' : 'striker',
+        };
+      });
+      app.match = new MatchSimulation({
+        mode: 'online', arenaId: config.arenaId, playersConfig, settings, audio: app.audio,
+        introTitle: 'ONLINE FRIENDLY · P1 CONTROLS ON EACH DEVICE',
+        onGoal: () => app._syncHUD(),
+        onMatchEnd: () => { if (this.inMatch && this.room.isHost) this.room.finish(this.encoder.capture(app.match)); },
+      });
+      app.match.leftTeamColor = '#fb818a';
+      app.match.rightTeamColor = '#84e2bb';
+      for (const player of app.match.players) player.teamColor = player.team === 0 ? app.match.leftTeamColor : app.match.rightTeamColor;
+    } else {
+      this.remote = new RemoteMatchView(config, settings);
+      app.match = this.remote;
+    }
+    app._showScreen('match');
+    this.navigating = false;
+    this._element('controls-toast').classList.remove('hidden');
+    this._element('controls-toast').style.opacity = '1';
+    app.toastFadeTimer = 12;
+    const teamName = team => players.filter(player => player.slot % 2 === team).map(player => player.name).join(' + ') || `TEAM ${team + 1}`;
+    this._element('hud-left-name').textContent = teamName(0);
+    this._element('hud-right-name').textContent = teamName(1);
+    this._element('hud-left-sub').textContent = config.mode === 'duel' ? 'P1 · LEFT GOAL' : 'P1 + P3 · LEFT GOAL';
+    this._element('hud-right-sub').textContent = config.mode === 'duel' ? 'P2 · RIGHT GOAL' : 'P2 + P4 · RIGHT GOAL';
+    this._element('hud-mode-tag').textContent = config.mode === 'duel' ? 'ONLINE 1V1' : 'ONLINE 2V2';
+    this._element('hud-hype-row').classList.toggle('hidden', !config.hyperStrikes);
+    this._element('hype-box-1').style.visibility = 'visible';
+    this._element('btn-pause-restart').classList.add('hidden');
+    app._syncHUD();
+    this._updateBadge();
+    if (document.hidden) app.togglePause(true);
+  }
+
+  _stopMatch() {
+    this.inMatch = false;
+    this.localPause = false;
+    this.app.match?.dispose();
+    this.app.pendingInputs.clear();
+    this.pendingInput = {};
+    this.app._closeAllModals();
+    this.app.paused = true;
+    this.app.audio.setPaused(true);
+    this._element('online-pause-notice').classList.add('hidden');
+    this._element('btn-pause-restart').classList.remove('hidden');
+  }
+
+  _finish(state) {
+    this.result = { scores: state.scores };
+    if (this.remote) { this.remote.receive(state); this.remote.update(0.05); }
+    this.app._syncHUD();
+    this._stopMatch();
+    this.app._openModal('modal-online');
+    this._render();
+  }
+
+  leave(showMenu = true) {
+    this.navigating = true;
+    this.room.close();
+    this._stopMatch();
+    this.result = null;
+    this.remote = null;
+    this.encoder = null;
+    this._element('online-match-badge').classList.add('hidden');
+    if (showMenu) this.app._showScreen('menu');
+    this.navigating = false;
+    this._render();
+  }
+
+  syncPauseFromUi() {
+    if (!this.inMatch || this.navigating) return;
+    const paused = this.app.modalStack.length > 0 || document.hidden;
+    if (paused !== this.localPause) {
+      this.localPause = paused;
+      this.room.requestPause(paused);
+    }
+    this.app.paused = this.localPause || this.room.paused;
+  }
+
+  _applyPause() {
+    if (!this.inMatch) return;
+    this.app.paused = this.localPause || this.room.paused;
+    this.app.pendingInputs.clear();
+    this.pendingInput = {};
+    this.app.input.clearAll();
+    this.app.accumulator = 0;
+    this.app.input.gameplayActive = !this.app.paused;
+    this.app.touch.updateVisibility();
+    this.app.audio.setPaused(this.app.paused);
+    const notice = this._element('online-pause-notice');
+    notice.classList.toggle('hidden', !this.app.paused);
+    notice.textContent = this.app.paused ? `PAUSED · ${[...this.room.pausedSlots].map(slot => `P${slot + 1}`).join(', ') || 'YOU'} · Each player resumes from their pause menu` : '';
+  }
+
+  inputFor(player) {
+    return player.slot === this.room.slot ? this.app.input.getPlayerInput(0) : this.room.takeInput(player.slot);
+  }
+
+  beforeFrame(dt) {
+    if (!this.inMatch) return;
+    if (this.guestMatch) {
+      this.remote.update(dt);
+      this.app._syncHUD();
+      const current = this.app.paused ? {} : this.app.input.getPlayerInput(0);
+      for (const key of ONLINE_INPUT_KEYS) {
+        this.pendingInput[key] = ONLINE_EDGE_KEYS.includes(key)
+          ? Boolean(this.pendingInput[key] || current[key]) : Boolean(current[key]);
+      }
+      this.inputAge += dt;
+      if (this.inputAge >= 1 / 30) {
+        this.inputAge %= 1 / 30;
+        try { this.room.sendInput(this.pendingInput); }
+        catch (error) { this.room._fail(error.message); return; }
+        for (const key of ONLINE_EDGE_KEYS) this.pendingInput[key] = false;
+      }
+    }
+  }
+
+  afterFrame(dt) {
+    if (!this.inMatch || !this.room.isHost) return;
+    this.snapshotAge += dt;
+    if (this.snapshotAge >= 0.05) {
+      this.snapshotAge %= 0.05;
+      try { this.room.sendState(this.encoder.capture(this.app.match)); }
+      catch (error) { this.room._fail(error.message); }
+    }
+  }
+
+  _updateBadge() {
+    const badge = this._element('online-match-badge');
+    badge.classList.toggle('hidden', !this.inMatch);
+    badge.textContent = `ONLINE · P${this.room.slot + 1} · ${this.room.isHost ? 'HOST' : `${this.room.latency} ms`}`;
+  }
+
+  _remoteSounds(previous, state) {
+    if (!previous) return;
+    const audio = this.app.audio;
+    if (state.scores.some((score, team) => score > previous.scores[team])) audio.playGoal();
+    if (state.phase === 'playing' && previous.phase === 'countdown') audio.playCountdownTick(true);
+    if (state.phase === 'countdown' && state.bannerText !== previous.bannerText) audio.playCountdownTick(false);
+    if (state.phase === 'sudden_death_intro' && previous.phase !== state.phase) audio.playSuddenDeath();
+    for (const player of state.players) {
+      const old = previous.players.find(other => other.slot === player.slot);
+      if (!old) continue;
+      if (player.stats.jumps > old.stats.jumps) audio.playJump(player.char);
+      if (player.stats.touches > old.stats.touches) audio.playBallKick(player.kickPowerRatio, player.kickPowerRatio > 0.78);
+      if (player.stats.parries > old.stats.parries) audio.playParry();
+      if (player.stats.dashes > old.stats.dashes) audio.playDash();
+      if (player.stats.itemsUsed > old.stats.itemsUsed && old.heldItem) audio.playItemUse(old.heldItem);
+    }
+  }
+}
+
+
 // === src/main.js ===
 // App lifecycle, accessible menus, local-player input, coaching and the fixed-step render loop.
+
 
 
 
@@ -9055,6 +10247,7 @@ class SuperKickKingdomApp {
       phase: Math.random() * Math.PI * 2,
     }));
 
+    this.online = new OnlineController(this);
     this._bindUI();
     this._renderSelectUI();
     this._renderCodex();
@@ -9740,10 +10933,15 @@ class SuperKickKingdomApp {
     this.pendingInputs.clear();
     this.accumulator = 0;
     this._syncDialogState();
-    (modal.querySelector('.kickoff-cta-btn:not(.hidden)') || this._focusableElements(modal)[0])?.focus();
+    const focusable = this._focusableElements(modal);
+    (focusable.find(element => element.classList.contains('kickoff-cta-btn')) || focusable[0])?.focus();
   }
 
   _closeModal(id) {
+    if (id === 'modal-online' && this.online?.room.phase !== 'idle' && !this.online?.navigating) {
+      this.online.leave();
+      return;
+    }
     const index = this.modalStack.findIndex(entry => entry.id === id);
     if (index < 0) return;
     const entries = this.modalStack.splice(index);
@@ -9772,7 +10970,6 @@ class SuperKickKingdomApp {
 
   _syncDialogState() {
     const top = this.modalStack.at(-1)?.id;
-    this.input.gameplayActive = this.screen === 'match' && !this.paused && !top;
     for (const id of ['top-utility-bar', 'play-surface', 'screen-menu', 'screen-select', 'screen-results']) {
       document.getElementById(id).inert = Boolean(top);
     }
@@ -9782,13 +10979,15 @@ class SuperKickKingdomApp {
       modal.style.zIndex = String(60 + Math.max(0, depth));
       modal.setAttribute('aria-modal', String(modal.id === top));
     });
+    this.online?.syncPauseFromUi();
+    this.input.gameplayActive = this.screen === 'match' && !this.paused && !top;
     this.touch.updateVisibility(this.screen, this.settings.touchControls);
     this.audio.setPaused(this.paused || document.hidden);
   }
 
   _focusableElements(root) {
     return [...root.querySelectorAll('button, input, select, [tabindex="0"]')]
-      .filter(element => !element.disabled && !element.closest('[inert]') && element.getClientRects().length);
+      .filter(element => !element.matches(':disabled') && !element.closest('[inert]') && element.getClientRects().length);
   }
 
   _trapDialogFocus(event) {
@@ -9843,7 +11042,8 @@ class SuperKickKingdomApp {
         ? 'Stage hazards are off. Platforms and the stadium gravity and traction still apply.'
         : guide.tip);
     document.getElementById('btn-coach-ready').textContent = this.screen === 'match' ? "LET'S PLAY" : 'GOT IT';
-    document.getElementById('btn-coach-practice').classList.toggle('hidden', this.selectedMode === 'practice' && this.screen === 'match');
+    document.getElementById('btn-coach-practice').classList.toggle('hidden',
+      this.online.activeMatch || (this.selectedMode === 'practice' && this.screen === 'match'));
     this._updateControlPrompts(true);
     this._openModal('modal-coach');
   }
@@ -9871,12 +11071,14 @@ class SuperKickKingdomApp {
     const hints = controlHints(this.input);
     this._appendControlPrompts(document.getElementById('coach-controls'), hints, ['move', 'jump', 'kick', 'lob', 'dash', 'item']);
     const toast = document.getElementById('controls-toast');
-    const human = this.match?.players.find(player => !player.isAI && player.controlSlot === this.input.activeSlot) ||
+    const human = (this.online?.activeMatch ? this.match?.players.find(player => player.slot === this.online.room.slot) : null) ||
+      this.match?.players.find(player => !player.isAI && player.controlSlot === this.input.activeSlot) ||
       this.match?.players.find(player => !player.isAI);
-    const slot = human?.controlSlot ?? 0;
+    const slot = this.online?.activeMatch ? 0 : human?.controlSlot ?? 0;
     this._appendControlPrompts(toast, controlHints(this.input, slot), ['move', 'jump', 'kick', 'dash', 'item']);
     const tag = document.createElement('b');
-    tag.textContent = `${source === 'gamepad' ? 'GAMEPAD' : source === 'touch' ? 'TOUCH' : 'KEYBOARD'} / ${human?.tag || 'P1'}`;
+    const playerTag = this.online?.activeMatch ? `P${this.online.room.slot + 1}` : human?.tag || 'P1';
+    tag.textContent = `${source === 'gamepad' ? 'GAMEPAD' : source === 'touch' ? 'TOUCH' : 'KEYBOARD'} / ${playerTag}`;
     toast.prepend(tag);
     document.getElementById('menu-input-status').textContent = source === 'gamepad'
       ? `${this.input.connectedGamepads} controller${this.input.connectedGamepads === 1 ? '' : 's'} ready · A to confirm`
@@ -10575,6 +11777,7 @@ class SuperKickKingdomApp {
   // SCREEN TRANSITIONS & SELECT SCREEN
   // =========================================================================
   _showScreen(next) {
+    if (this.online?.activeMatch && next !== 'match' && !this.online.navigating) this.online.leave(false);
     this._closeAllModals();
     this.input.clearAll();
     this.pendingInputs.clear();
@@ -11039,6 +12242,7 @@ class SuperKickKingdomApp {
   // MATCH LAUNCH, HUD & RESULTS LIFECYCLE
   // =========================================================================
   startMatch() {
+    if (this.online?.activeMatch) this.online.leave(false);
     this.match?.dispose();
     this._closeAllModals();
     this.practice = null;
@@ -11426,9 +12630,9 @@ class SuperKickKingdomApp {
 
   togglePause(forceState) {
     if (this.screen !== 'match') return;
-    const pause = forceState !== undefined ? forceState : !this.paused;
+    const pause = forceState !== undefined ? forceState : !(this.online?.activeMatch ? this.online.localPause : this.paused);
     if (pause) {
-      if (!this.paused) this._openModal('modal-pause');
+      if (!this.paused || this.online?.activeMatch) this._openModal('modal-pause');
     } else {
       this._closeAllModals();
       this.input.clearAll();
@@ -11438,6 +12642,7 @@ class SuperKickKingdomApp {
   }
 
   _handleMatchFinished(summary) {
+    if (summary.mode === 'online') return;
     if (summary.mode === 'practice') {
       this._showScreen('menu');
       return;
@@ -11684,6 +12889,7 @@ class SuperKickKingdomApp {
       this._pushToast('Controller disconnected', 'Reconnect it or use the keyboard, then resume when you are ready.', '🎮');
     }
     this._handleGlobalShortcuts();
+    this.online.beforeFrame(rawDt);
     this._updateControlPrompts();
 
     // Update Gamepad Indicator Pill
@@ -11717,15 +12923,16 @@ class SuperKickKingdomApp {
       this._renderMatchCanvas();
     }
 
+    this.online.afterFrame(rawDt);
     this.input.endFrame();
     requestAnimationFrame((ts) => this._loop(ts));
   }
 
   _stepMatch(rawDt) {
     const match = this.match;
-    if (!match || this.paused) return;
+    if (!match || this.paused || this.online.guestMatch) return;
     for (const player of match.players.filter(player => !player.isAI)) {
-      const current = this.input.getPlayerInput(player.controlSlot);
+      const current = this.online.activeMatch ? this.online.inputFor(player) : this.input.getPlayerInput(player.controlSlot);
       const pending = this.pendingInputs.get(player.controlSlot);
       for (const key of INPUT_EDGES) current[key] ||= pending?.[key] || false;
       this.pendingInputs.set(player.controlSlot, current);
@@ -11805,7 +13012,7 @@ class SuperKickKingdomApp {
     }
     const startPressed = this.input.wasStartJustPressed();
     if (this.input.wasGamepadButtonJustPressed(slot, 0) || startPressed) {
-      const target = (startPressed ? root.querySelector('.kickoff-cta-btn:not(.hidden)') : focused) ||
+      const target = (startPressed ? elements.find(element => element.classList.contains('kickoff-cta-btn')) : focused) ||
         root.querySelector('.quick-mode-btn, .kickoff-cta-btn:not(.hidden)') || elements[0];
       if (target.matches('select, input[type="range"]')) target.focus();
       else target.click();
@@ -11823,7 +13030,7 @@ class SuperKickKingdomApp {
       return;
     }
 
-    const humanSlots = this.match?.players.filter(player => !player.isAI).map(player => player.controlSlot) || [];
+    const humanSlots = this.online.activeMatch ? [0] : this.match?.players.filter(player => !player.isAI).map(player => player.controlSlot) || [];
     if (this.input.wasKeyJustPressed('KeyM') && !this.input.isBound('KeyM', humanSlots)) {
       this.audio.toggleMute();
       this._syncMuteButton();
@@ -12140,7 +13347,7 @@ class SuperKickKingdomApp {
   _renderMatchCanvas() {
     const ctx = this.ctx;
     const m = this.match;
-    const alpha = this.paused ? 1 : Math.min(1, this.accumulator / FIXED_STEP);
+    const alpha = this.paused || this.online.guestMatch ? 1 : Math.min(1, this.accumulator / FIXED_STEP);
     const interpolate = entity => {
       if (!Number.isFinite(entity.previousX) || Math.hypot(entity.x - entity.previousX, entity.y - entity.previousY) > 250) return entity;
       return { ...entity, x: entity.previousX + (entity.x - entity.previousX) * alpha,
@@ -12201,7 +13408,7 @@ class SuperKickKingdomApp {
     const isRugby = m.hasMutator('rugbyBall');
     for (const b of scene.balls) {
       const floor = b.x < m.arena.pitchLeftX || b.x > m.arena.pitchRightX ? m.arena.goalFloorY : m.arena.pitchFloorY;
-      this.art.drawBall(ctx, b, floor, visualTime, this.settings.equippedBallSkin, isRugby);
+      this.art.drawBall(ctx, b, floor, visualTime, m.settings.equippedBallSkin, isRugby);
     }
 
     // 10. Particles, Custom Goal Explosions, Shockwaves & Floating Callouts

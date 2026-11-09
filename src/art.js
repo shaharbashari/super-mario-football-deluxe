@@ -1835,7 +1835,7 @@ export class ArtRenderer {
     const extraHeadH = player.bigHead ? 28 * scale : 0;
     const tagY = player.y + (52 - drawSize * metrics.footY) * scale - 18 - extraHeadH;
     ctx.fillStyle = 'rgba(12, 18, 36, 0.84)';
-    ctx.strokeStyle = player.hyperReady ? '#fde047' : ch.primary;
+    ctx.strokeStyle = player.hyperReady ? '#fde047' : player.teamColor || ch.primary;
     ctx.lineWidth = player.hyperReady ? 3.8 : 2.8;
     this.roundRect(ctx, player.x - 27, tagY - 12, 54, 23, 9);
     ctx.fill();

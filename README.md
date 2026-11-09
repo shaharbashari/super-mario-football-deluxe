@@ -1,9 +1,9 @@
 # Super Mario Football Deluxe
 
-A local arcade football brawler for 1-4 players, inspired by
+A local and online arcade football brawler for 1-4 players, inspired by
 [S&A Games' 2019 Super Mario Football](https://sa-games.itch.io/super-mario-football)
-and the Kung Foot format. No account, backend or runtime package installation
-is required.
+and the Kung Foot format. Local play needs no account, backend or runtime
+package installation. Online friendlies use room codes and peer-to-peer connections.
 
 ## Play
 
@@ -27,6 +27,44 @@ portrait play remains available after dismissing the rotation suggestion.
 Fullscreen uses the browser API when available and an explicitly reported
 expanded-view fallback otherwise.
 
+## Online rooms
+
+Open the hosted game and choose **Online rooms**. Enter a nickname, pick a
+striker/kit and select **Create room**. Share the six-character code or **Copy
+invite link** with friends. They choose **Join room**, enter the code, and
+select their own striker. Every connected player presses **Ready**, then the
+host presses **Kick off**.
+
+Rooms support **1v1** and **2v2**, with two to four human players. Empty 2v2
+slots use CPU teammates. P1/P3 defend the left goal and P2/P4 defend the right.
+Each device uses its own **P1 keyboard bindings, first controller or touch
+controls**, regardless of its room slot. The host chooses stadium, duration,
+score limit, items, hazards and Hyper-Strikes. Changing rules clears readiness.
+
+The room creator runs the authoritative simulation. Guests send their own
+inputs and render interpolated host snapshots; they do not simulate independent
+balls or award local progression. Pausing pauses the whole match, and each
+player must clear their own pause request before play resumes. Finished rounds
+return everyone to the same lobby to ready up for a rematch. A disconnected
+player cancels the round; an unresponsive peer is removed after roughly
+eight seconds. If the host leaves, the room closes. Online matches do not
+award coins, trophies, cup progress or arcade records.
+
+**Connection and privacy limits:** the pinned, locally bundled
+[PeerJS client](https://peerjs.com/client/getting-started) uses its public
+signaling and default ICE services (STUN/relay), so no hosting account or player
+login is needed. A connection is initiated only when creating or joining a
+room; opening an invite merely prefills the code. WebRTC peers can learn each
+other's IP addresses. Codes are invitations, not account authentication: share
+them only with friends. No camera, microphone, chat, cloud saves, matchmaking,
+host migration or competitive anti-cheat is provided.
+
+Keep the host's game tab open and use a stable, low-latency connection.
+Restrictive school/work networks, VPNs and suspended mobile browsers may block
+or interrupt connections; failures are reported rather than silently falling
+back to a local match. Public service availability is outside this game's
+control. Dedicated hosting/relay and rollback prediction remain future options.
+
 ## What's included
 
 - 12 strikers with three kits each, six ball skins, six goal effects and
@@ -36,6 +74,8 @@ expanded-view fallback otherwise.
 - Solo CPU duels, couch versus, five 2v2 squad formats, four Grand Prix cups
   with solo/co-op play, 4/8-entry tournaments, eight trials and three arcade
   challenges: Target Blitz, Keep-Up Survival and Goalie Gauntlet.
+- Room-code online 1v1/2v2 friendlies, shared lobbies, ready checks, live latency,
+  synchronized pause/results and rematches.
 - Double jumps, charge strikes, directional lobs, wall jumps, ground pounds,
   perfect parries, spin, team-pass Voltage and signature Hyper-Strikes.
 - A sports-broadcast UI, input-aware prompts, focus-contained dialogs,
@@ -112,11 +152,20 @@ npm ci
 npm run build
 npm test
 npm run test:browser
+npm run test:online
 npm run build:check
 ```
 
 If Playwright reports that its browser is missing, run
 `npx playwright install chromium` once and rerun the browser suite.
+`test:online` requires internet access and exercises separate real browser
+peers through the public signaling service. It is separate from the local UI
+suite so a service outage does not masquerade as an offline-game regression.
+These browser peers run on one machine: they verify public signaling and
+match synchronization, not every cross-network/NAT combination. A relay-only
+probe in the development environment reported ICE 701 DNS lookup failures;
+independent-network relay connectivity remains unverified. A managed relay
+account is the recommended next step for dependable restrictive-network support.
 
 Edit `src` modules, not `dist/bundle.js`. Register new runtime modules in
 `build.mjs` in dependency order, then rebuild. The checked-in IIFE bundle
@@ -124,6 +173,9 @@ keeps direct `file://` launch working; `build:check` detects source/bundle
 drift with consistent line endings. Building also fingerprints the stylesheet
 and bundle URLs in `index.html` so a deployment does not mix cached old code
 with the new interface.
+The build also copies the pinned PeerJS browser distribution and its bundled
+dependency license notices to `dist`, and fingerprints the library URL.
+No CDN script is required.
 
 GitHub Pages publishes the repository root from `main`. `.nojekyll` preserves
 the static files without Jekyll processing. Build and verify before publishing;
@@ -134,6 +186,13 @@ save recovery and all stadium/item simulations. Browser coverage exercises
 responsive layouts, dialogs, all mode families, gamepad emulation, touch,
 audio, missing assets and offline launch. Emulation is not a substitute for
 testing real controllers, mobile Safari or touch latency on hardware.
+
+Networking is split between `src/online-state.js` (bounded packet validation
+and snapshot views), `src/online.js` (room transport/lifecycle) and
+`src/online-ui.js` (lobby and game integration). Input ownership is assigned by
+the host connection, not a client-supplied slot. Do not send save data through
+these packets or execute received strings as code. Bump `ONLINE_VERSION` and
+its peer-ID namespace when introducing an incompatible wire protocol.
 
 ### Assets
 

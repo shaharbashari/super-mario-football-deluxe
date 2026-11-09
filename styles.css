@@ -111,6 +111,7 @@ body[data-screen="match"] #btn-top-coins { display: none; }
 .mode-card:hover { transform: translateY(-3px); border-color: var(--card-accent); background: linear-gradient(145deg, #25394e, #16283a); }
 .mode-card.primary { --card-accent: var(--gold); background: linear-gradient(135deg, #3c382b, #1f2c33); border-color: #9c8756; }
 .mode-card.versus { --card-accent: #f99c87; }
+.mode-card.online { --card-accent: #8ddfe9; background: linear-gradient(135deg, #173b46, #172b3b); border-color: #4a9ea9; }
 .mode-card.chaos, .mode-card.tourney { --card-accent: #c0a3f5; }
 .mode-card.cup, .mode-card.trials { --card-accent: var(--gold); }
 .mode-card.mutators, .mode-card.solo { --card-accent: var(--green); }
@@ -498,6 +499,38 @@ body[data-screen="match"][data-mode="practice"] #pitch-viewport {
 }
 body[data-motion="reduced"] *, body[data-motion="reduced"] *::before, body[data-motion="reduced"] *::after {
   animation: none !important; transition: none !important; scroll-behavior: auto !important;
+}
+.online-pick, .online-rules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.online-pick { margin-bottom: 20px; }
+.online-modal label { display: flex; flex-direction: column; gap: 6px; color: #b9c9de; font-size: 12px; min-width: 0; }
+.online-modal input:not([type="checkbox"]), .online-modal select { width: 100%; min-width: 0; border: 1px solid #536b84; border-radius: 7px; background: #0c1b2b; color: #f1e7d0; padding: 10px; min-height: 42px; }
+.online-connect-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
+.online-code-label { flex: 1; min-width: 170px !important; }
+#online-code-input { text-transform: uppercase; letter-spacing: 3px; font-weight: 850; }
+.online-or { color: #8096ae; align-self: center; font-size: 11px; }
+.online-room-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.room-code { color: #fff0bc; font: 900 clamp(28px, 5vw, 46px)/1.2 var(--font-body); letter-spacing: 6px; user-select: text; }
+.online-slot-label { font-size: 11px; color: #9cdae9; margin: 12px 0; letter-spacing: .6px; }
+.online-players { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 16px 0; }
+.online-player { display: flex; flex-direction: column; gap: 6px; min-width: 0; overflow-wrap: anywhere; padding: 14px; background: #1a3043; border: 1px solid #53697c; border-left: 3px solid var(--red); border-radius: 9px; }
+.online-player.away { border-left-color: var(--green); }
+.online-player strong { font-size: 13px; }
+.online-player span { font-size: 12px; color: #c3d4e6; }
+.online-player small { font-size: 9px; letter-spacing: 1px; color: var(--gold); }
+.online-rules { margin: 12px 0; padding: 14px; border: 1px solid #425a72; border-radius: 10px; }
+.online-rules legend { padding: 0 7px; font-size: 11px; color: #acc4dd; }
+.online-rules:disabled { opacity: .7; }
+.online-modal .online-check { flex-direction: row; align-items: center; align-self: end; min-height: 42px; }
+.online-status { min-height: 24px; color: #9de3c5; font-size: 13px; margin: 18px 0 8px; }
+.online-status.error { color: #ffb6bc; }
+.online-privacy { color: #96aac2; font-size: 11px; line-height: 1.6; margin-bottom: 0; }
+.online-result { padding: 12px; border: 1px solid #ac9257; border-radius: 8px; color: var(--gold); font-weight: 800; font-size: 13px; }
+.online-match-badge { align-self: center; color: #c4f2f5; background: #0d2539e8; border: 1px solid #649ba8; padding: 3px 8px; border-radius: 6px; font-size: clamp(7px, 1cqw, 11px); }
+@media (max-width: 700px) {
+  .online-pick, .online-rules { grid-template-columns: 1fr; }
+  .online-room-heading { flex-wrap: wrap; }
+  .online-players { grid-template-columns: 1fr; }
+  .online-or { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   body:not([data-motion="full"]) *, body:not([data-motion="full"]) *::before {

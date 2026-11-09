@@ -8,7 +8,7 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#090b16" />
   <title>Super Mario Football Deluxe (Kung-Foot 2.0)</title>
-  <link rel="stylesheet" href="./styles.css?v=8b5a9544026d" />
+  <link rel="stylesheet" href="./styles.css?v=98884692fc39" />
 </head>
 <body data-screen="menu">
   <!-- Mobile Rotate-to-Landscape Guidance Overlay -->
@@ -93,6 +93,8 @@
             </div>
           </div>
           <div id="trial-objective" class="objective-pill hidden" role="status"></div>
+          <div id="online-match-badge" class="online-match-badge hidden"></div>
+          <div id="online-pause-notice" class="objective-pill hidden" role="status"></div>
         </div>
 
         <div id="controls-toast" class="controls-toast" aria-label="Active controls"></div>
@@ -168,6 +170,13 @@
         </div>
         <div class="section-heading"><span>CHOOSE YOUR NEXT MATCH</span><span>PLAY YOUR WAY</span></div>
         <div class="mode-grid deluxe-mode-grid">
+          <button class="mode-card online" id="btn-mode-online">
+            <span class="mode-tag-pill">PLAY WITH FRIENDS</span>
+            <div class="mode-icon-wrap" aria-hidden="true">🌐</div>
+            <div class="mode-title">ONLINE ROOMS</div>
+            <div class="mode-desc">Create a room code for 1v1 or 2v2 across devices</div>
+            <div class="mode-status-badge cyan">2–4 PLAYERS · NO ACCOUNTS</div>
+          </button>
           <!-- 1. Solo Exhibition -->
           <button class="mode-card primary quick-mode-btn" data-mode="1v1_cpu">
             <span class="mode-tag-pill">SOLO EXHIBITION</span>
@@ -231,14 +240,6 @@
             <div class="mode-status-badge cyan" id="menu-best-badge">3 CHALLENGES</div>
           </button>
 
-          <!-- 8. Mutators Lab -->
-          <button class="mode-card mutators" id="btn-mode-mutators">
-            <span class="mode-tag-pill">SANDBOX</span>
-            <div class="mode-icon-wrap">🧪</div>
-            <div class="mode-title">MUTATORS LAB</div>
-            <div class="mode-desc">Custom physics, Iron Ball, curved world &amp; presets</div>
-            <div class="mode-status-badge green" id="menu-mutator-badge">0 ACTIVE</div>
-          </button>
         </div>
 
         <div class="menu-footer-actions">
@@ -246,6 +247,7 @@
           <button id="btn-open-options" class="dock-btn">⚙️ OPTIONS</button>
           <button id="btn-open-controls" class="dock-btn">🎮 CONTROLS</button>
           <button id="btn-open-codex" class="dock-btn">🍄 CODEX (18)</button>
+          <button id="btn-mode-mutators" class="dock-btn">🧪 MUTATORS <span id="menu-mutator-badge" class="dock-pill">0 ACTIVE</span></button>
         </div>
         <p class="menu-credit">A fan-made local arcade game, inspired by S&amp;A Games' 2019 classic.</p>
       </section>
@@ -591,6 +593,58 @@
         </div>
       </div>
 
+      <div id="modal-online" class="modal-backdrop hidden">
+        <div class="modal-box wide-modal online-modal">
+          <div class="modal-header">
+            <div><span class="eyebrow">FRIENDLY MATCH NIGHT</span><h2 class="modal-title">Online rooms</h2></div>
+            <button class="modal-close" data-close="modal-online" aria-label="Leave online room">✕</button>
+          </div>
+          <p class="modal-note">One striker per device, using your P1 keyboard, gamepad or touch controls. The host keeps this tab open. Online friendlies do not award coins or trophies.</p>
+          <div id="online-player-pick" class="online-pick">
+            <label>Nickname <input id="online-name" type="text" maxlength="20" placeholder="Player" autocomplete="off" /></label>
+            <label>Striker <select id="online-char"></select></label>
+            <label>Kit <select id="online-kit"></select></label>
+          </div>
+          <div id="online-entry">
+            <div id="online-connect-actions" class="online-connect-actions">
+              <button id="online-create" class="kickoff-cta-btn">CREATE ROOM</button>
+              <span class="online-or">OR</span>
+              <label class="online-code-label">Friend's room code
+                <input id="online-code-input" maxlength="12" placeholder="ABCD23" autocapitalize="characters" autocomplete="off" spellcheck="false" />
+              </label>
+              <button id="online-join" class="secondary-btn">JOIN ROOM</button>
+            </div>
+          </div>
+          <div id="online-lobby" class="hidden">
+            <div class="online-room-heading">
+              <div><span class="eyebrow">SHARE THIS ROOM CODE</span><div id="online-room-code" class="room-code"></div></div>
+              <button id="online-copy" class="secondary-btn">COPY INVITE LINK</button>
+            </div>
+            <div id="online-slot-label" class="online-slot-label"></div>
+            <div id="online-result" class="online-result hidden" role="status"></div>
+            <div id="online-players" class="online-players"></div>
+            <fieldset id="online-rules" class="online-rules">
+              <legend>Host rules · changing rules clears everyone's ready status</legend>
+              <label>Format <select id="online-format"><option value="duel">1v1</option><option value="doubles">2v2 (empty slots use CPU)</option></select></label>
+              <label>Stadium <select id="online-arena"></select></label>
+              <label>Time <select id="online-duration"><option value="60">1:00</option><option value="120">2:00</option><option value="180">3:00</option></select></label>
+              <label>Score limit <select id="online-score"><option value="0">Timed</option><option value="3">First to 3</option><option value="5">First to 5</option><option value="7">First to 7</option></select></label>
+              <label>Items <select id="online-items"><option value="standard">All items</option><option value="competitive">Competitive</option><option value="off">Off</option></select></label>
+              <label class="online-check"><input id="online-hazards" type="checkbox" checked /> Stage hazards</label>
+              <label class="online-check"><input id="online-hyper" type="checkbox" checked /> Hyper-strikes</label>
+            </fieldset>
+            <div class="modal-footer">
+              <button id="online-leave" class="secondary-btn danger">LEAVE ROOM</button>
+              <button id="online-ready" class="secondary-btn">READY</button>
+              <button id="online-start" class="kickoff-cta-btn" disabled>KICK OFF</button>
+            </div>
+          </div>
+          <p id="online-status" class="online-status" role="status" aria-live="polite"></p>
+          <button id="online-cancel" class="secondary-btn hidden">CANCEL CONNECTION</button>
+          <p class="online-privacy">Connecting uses PeerJS's public signaling service and WebRTC. Peers can learn your IP address. Share codes only with friends; there is no account authentication or host migration. Restricted networks may block connections. No microphone or camera is used.</p>
+        </div>
+      </div>
+
       <div id="modal-coach" class="modal-backdrop hidden">
         <div class="modal-box coach-modal">
           <div class="modal-header">
@@ -821,6 +875,7 @@
   </div>
 
   <!-- Bundled from modular src/*.js via `node build.mjs` so file:// & itch.io both work out of the box -->
-  <script defer src="./dist/bundle.js?v=568e6e293bd2"></script>
+  <script defer src="./dist/peerjs.min.js?v=7604d8c31bec"></script>
+  <script defer src="./dist/bundle.js?v=def12420ce82"></script>
 </body>
 </html>
