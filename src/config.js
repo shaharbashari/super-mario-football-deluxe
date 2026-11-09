@@ -3,6 +3,14 @@
 
 export const VIRTUAL_WIDTH = 1920;
 export const VIRTUAL_HEIGHT = 1080;
+export const FIELD_CHARACTER_DRAW_SIZE = 128;
+export const COURIER_LAYOUT = {
+  bodyScale: 1.5,
+  baseY: 335,
+  itemOffsetY: 136,
+  bubbleRadius: 52,
+  itemRadius: 40,
+};
 
 export const CHARACTERS = [
   {

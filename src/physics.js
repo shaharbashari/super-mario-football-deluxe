@@ -6,6 +6,7 @@ import {
   ITEMS,
   BALL_PRESETS,
   GOAL_EXPLOSIONS,
+  COURIER_LAYOUT,
   getCharacter,
   getArena,
 } from './config.js';
@@ -116,7 +117,7 @@ export class MatchSimulation {
     this.courier = {
       active: this.settings.itemMode !== 'off' && !this.isMinigame,
       x: VIRTUAL_WIDTH / 2,
-      y: 305,
+      y: COURIER_LAYOUT.baseY,
       heldItemId: null,
       spawnTimer: this.settings.itemMode === 'frantic' ? 3.0 : 5.5,
     };
@@ -1234,8 +1235,10 @@ export class MatchSimulation {
     // Sky-Cloud Courier Item Pickup!
     if (!p.isClone && !p.heldItem && this.courier.active && this.courier.heldItemId) {
       const bx = this.courier.bubbleX ?? this.courier.x;
-      const by = this.courier.bubbleY ?? this.courier.y + 94;
-      if (Math.hypot(p.x - bx, p.y - by) < p.halfH + 42) {
+      const by = this.courier.bubbleY ?? this.courier.y + COURIER_LAYOUT.itemOffsetY;
+      const nearestX = Math.max(p.x - p.halfW, Math.min(p.x + p.halfW, bx));
+      const nearestY = Math.max(p.y - p.halfH, Math.min(p.y + p.halfH, by));
+      if (Math.hypot(nearestX - bx, nearestY - by) <= COURIER_LAYOUT.bubbleRadius) {
         p.heldItem = this.courier.heldItemId;
         this.courier.heldItemId = null;
         this.courier.spawnTimer = this.settings.itemMode === 'frantic' ? 4.8 : 9.0;
@@ -2581,11 +2584,11 @@ export class MatchSimulation {
   _updateCourier(dt) {
     if (!this.courier.active) return;
     this.courier.x = VIRTUAL_WIDTH / 2 + Math.sin(this.time * 0.65) * 430;
-    this.courier.y = 305 + Math.sin(this.time * 1.3) * 46;
+    this.courier.y = COURIER_LAYOUT.baseY + Math.sin(this.time * 1.3) * 46;
     this.courier.vx = Math.cos(this.time * 0.65) * 430 * 0.65;
     this.courier.vy = Math.cos(this.time * 1.3) * 46 * 1.3;
     this.courier.bubbleX = this.courier.x - this.courier.vx * 0.09 + Math.sin(this.time * 4.2) * 8;
-    this.courier.bubbleY = this.courier.y + 94;
+    this.courier.bubbleY = this.courier.y + COURIER_LAYOUT.itemOffsetY;
 
     if (!this.courier.heldItemId) {
       this.courier.spawnTimer -= dt;

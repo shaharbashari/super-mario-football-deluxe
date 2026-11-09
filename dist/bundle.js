@@ -7,6 +7,14 @@
 // 12 strikers, 7 stadiums, 18 items, 9 mutators, 4 cups and 26 trophies.
 const VIRTUAL_WIDTH = 1920;
 const VIRTUAL_HEIGHT = 1080;
+const FIELD_CHARACTER_DRAW_SIZE = 128;
+const COURIER_LAYOUT = {
+  bodyScale: 1.5,
+  baseY: 335,
+  itemOffsetY: 136,
+  bubbleRadius: 52,
+  itemRadius: 40,
+};
 const CHARACTERS = [
   {
     id: 'mario',
@@ -3049,6 +3057,28 @@ const INK = '#151020';
 
 const ITEM_INDEX_MAP = Object.fromEntries(ITEMS.map((it, idx) => [it.id, idx]));
 
+// Visible-art bounds in each 256px source cell; transparent padding is not icon size.
+const ITEM_SPRITE_BOUNDS = {
+  RedMushroom: [46, 62, 219, 230],
+  TinyMushroom: [84, 98, 181, 193],
+  IceFlower: [49, 62, 210, 230],
+  FireFlower: [46, 62, 208, 230],
+  EnlargeBall: [31, 59, 217, 230],
+  GreenShell: [36, 72, 214, 222],
+  BulletBill: [41, 87, 224, 207],
+  POW: [51, 68, 213, 230],
+  GoalKeeper: [44, 61, 216, 230],
+  '1UP': [39, 62, 214, 230],
+  SuperStar: [39, 61, 210, 228],
+  ChainHound: [41, 61, 203, 230],
+  BananaBunch: [47, 63, 219, 227],
+  MagnetGlove: [54, 59, 210, 230],
+  ShadowClone: [44, 63, 216, 226],
+  ThunderZapper: [70, 57, 184, 230],
+  WarpPipe: [47, 63, 204, 226],
+  TriBall: [38, 59, 209, 230],
+};
+
 const BALL_SKIN_CELL_MAP = {
   classic: 0,
   gold_star: 1,
@@ -3795,7 +3825,9 @@ class ArtRenderer {
             ctx.translate(pl.x, pitchFloorY + 4 + dist * 0.22);
             ctx.scale(pl.facing * (pl.visualScale || 1) * pl.char.stats.size, -0.45 * (pl.visualScale || 1) * pl.char.stats.size);
             const { col, row } = this._selectCharFrameCoords(pl, time);
-            this._drawCharFrame(ctx, pl.char, col, row, -75, -142, 150, 150);
+            const footY = CHAR_SPRITE_METRICS[pl.char.id].footY;
+            this._drawCharFrame(ctx, pl.char, col, row, -FIELD_CHARACTER_DRAW_SIZE / 2,
+              -FIELD_CHARACTER_DRAW_SIZE * footY, FIELD_CHARACTER_DRAW_SIZE, FIELD_CHARACTER_DRAW_SIZE);
             ctx.restore();
           }
         }
@@ -4072,7 +4104,7 @@ class ArtRenderer {
 
     if (player.heldItem) {
       const bob = Math.sin(time * 6.5) * 4;
-      this.drawItemIcon(ctx, player.heldItem, cx, cy + bob, 34, time);
+      this.drawItemIcon(ctx, player.heldItem, cx, cy + bob, 40, time);
       ctx.fillStyle = '#fde047';
       ctx.font = '900 14px system-ui, sans-serif';
       ctx.fillText('READY!', cx, cy + r + 18);
@@ -4411,6 +4443,8 @@ class ArtRenderer {
     const breathPulse = 1 + Math.sin(time * 6.5) * 0.035;
 
     // 1. Animated Trailing Cloud Puffs from the back of the cloud
+    ctx.save();
+    ctx.scale(COURIER_LAYOUT.bodyScale, COURIER_LAYOUT.bodyScale);
     for (let p = 1; p <= 4; p++) {
       const pPhase = (time * 3.2 + p * 0.25) % 1;
       const pDist = pPhase * 56;
@@ -4429,47 +4463,49 @@ class ArtRenderer {
       ctx.stroke();
       ctx.restore();
     }
+    ctx.restore();
 
     // 2. Trailing Fishing Line & Item Bubble with Inertia Sway
     if (heldItemId) {
       const inertiaSway = courier.bubbleX !== undefined ? courier.bubbleX - courier.x : -vx * 0.09 + Math.sin(time * 4.2) * 8;
+      const bx = inertiaSway;
+      const by = courier.bubbleY !== undefined ? courier.bubbleY - courier.y : COURIER_LAYOUT.itemOffsetY;
+      const radius = COURIER_LAYOUT.bubbleRadius;
       ctx.strokeStyle = INK;
       ctx.lineWidth = 4.5;
       ctx.beginPath();
-      ctx.moveTo(facing * 18, 12);
-      ctx.quadraticCurveTo(inertiaSway * 0.5, 48, inertiaSway, 82);
+      ctx.moveTo(facing * 18 * COURIER_LAYOUT.bodyScale, 12 * COURIER_LAYOUT.bodyScale);
+      ctx.quadraticCurveTo(inertiaSway * 0.5, by * 0.45, bx, by - radius);
       ctx.stroke();
 
-      const bx = inertiaSway;
-      const by = courier.bubbleY !== undefined ? courier.bubbleY - courier.y : 94;
       const pulse = 1 + Math.sin(time * 7) * 0.06;
+      const glowRadius = radius * 1.28 * pulse;
       ctx.save();
       ctx.translate(bx, by);
-      ctx.scale(pulse, pulse);
 
       // Iridescent soap-crystal item bubble!
-      const glow = ctx.createRadialGradient(-8, -10, 6, 0, 0, 46);
+      const glow = ctx.createRadialGradient(-12, -14, 8, 0, 0, glowRadius);
       glow.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
       glow.addColorStop(0.55, 'rgba(125, 211, 252, 0.52)');
       glow.addColorStop(0.85, 'rgba(192, 132, 252, 0.32)');
       glow.addColorStop(1, 'rgba(56, 189, 248, 0)');
       ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(0, 0, 46, 0, Math.PI * 2);
+      ctx.arc(0, 0, glowRadius, 0, Math.PI * 2);
       ctx.fill();
 
-      this.drawItemIcon(ctx, heldItemId, 0, 0, 30, time);
+      this.drawItemIcon(ctx, heldItemId, 0, 0, COURIER_LAYOUT.itemRadius, time);
 
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.90)';
       ctx.lineWidth = 3.2;
       ctx.beginPath();
-      ctx.arc(0, 0, 36, 0, Math.PI * 2);
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
       ctx.stroke();
 
       // Specular shine highlights
       ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
       ctx.beginPath();
-      ctx.ellipse(-13, -15, 9, 5, -0.5, 0, Math.PI * 2);
+      ctx.ellipse(-radius * 0.36, -radius * 0.42, 12, 6, -0.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
@@ -4478,7 +4514,7 @@ class ArtRenderer {
     ctx.save();
     ctx.translate(0, floatBob);
     ctx.rotate(bankAngle);
-    ctx.scale(facing * breathPulse, breathPulse);
+    ctx.scale(facing * breathPulse * COURIER_LAYOUT.bodyScale, breathPulse * COURIER_LAYOUT.bodyScale);
 
     if (props) {
       const pW = (props.naturalWidth || props.width || 1024) / 2;
@@ -4514,7 +4550,14 @@ class ArtRenderer {
     if (atlas && idx !== undefined) {
       const col = idx % 6;
       const row = Math.floor(idx / 6);
-      const sz = r * 2.32;
+      const bounds = ITEM_SPRITE_BOUNDS[itemId];
+      if (!bounds) throw new Error(`Missing item sprite bounds: ${itemId}`);
+      const [left, top, right, bottom] = bounds;
+      const cropW = right - left + 8;
+      const cropH = bottom - top + 8;
+      const fit = r * 2 / Math.max(cropW, cropH);
+      const width = cropW * fit;
+      const height = cropH * fit;
       ctx.save();
       ctx.translate(x, y);
       const motion = itemMotion(itemId, this.reducedMotion ? 0 : time);
@@ -4523,7 +4566,9 @@ class ArtRenderer {
       ctx.scale(motion.scaleX, motion.scaleY);
       const cellW = (atlas.naturalWidth || atlas.width || 1536) / 6;
       const cellH = (atlas.naturalHeight || atlas.height || 768) / 3;
-      ctx.drawImage(atlas, col * cellW, row * cellH, cellW, cellH, -sz / 2, -sz / 2, sz, sz);
+      ctx.drawImage(atlas, col * cellW + (left - 4) * cellW / 256,
+        row * cellH + (top - 4) * cellH / 256, cropW * cellW / 256, cropH * cellH / 256,
+        -width / 2, -height / 2, width, height);
       ctx.restore();
       return;
     }
@@ -4555,12 +4600,13 @@ class ArtRenderer {
     return col + row * 24;
   }
 
-  drawCharacterPuppet(ctx, player, balls, time) {
+  drawCharacterPuppet(ctx, player, balls, time, { onField = false } = {}) {
     const ch = player.char;
     const scale = (player.visualScale || 1) * ch.stats.size;
     const facing = player.facing || 1;
     const sheet = this._getCharSheet(ch);
     const metrics = CHAR_SPRITE_METRICS[ch.id] || CHAR_SPRITE_METRICS.mario;
+    const drawSize = onField ? FIELD_CHARACTER_DRAW_SIZE : metrics.drawSize;
     const { col, row } = this._selectCharFrameCoords(player, time);
 
     // 1. Soft Ground Contact Shadow
@@ -4593,7 +4639,7 @@ class ArtRenderer {
         ctx.translate(g.x, g.y);
         ctx.scale(facing * scale, scale);
         if (sheet) {
-          const dSz = metrics.drawSize;
+          const dSz = drawSize;
           const topY = 53 - dSz * metrics.footY;
           this._drawCharFrame(ctx, ch, col, row, -dSz * 0.5, topY, dSz, dSz, ch.aura || ch.primary);
         } else {
@@ -4725,7 +4771,7 @@ class ArtRenderer {
     ctx.translate(0, -footPivot);
 
     if (sheet) {
-      const dSz = metrics.drawSize;
+      const dSz = drawSize;
       const airOffset = row === 2 || row === 5 ? metrics.airShiftY : 0;
       const topY = 52 - dSz * metrics.footY + airOffset;
 
@@ -4836,7 +4882,7 @@ class ArtRenderer {
     // Sleek Floating Player Indicator Pill above Head
     ctx.save();
     const extraHeadH = player.bigHead ? 28 * scale : 0;
-    const tagY = player.y + (52 - metrics.drawSize * metrics.footY) * scale - 18 - extraHeadH;
+    const tagY = player.y + (52 - drawSize * metrics.footY) * scale - 18 - extraHeadH;
     ctx.fillStyle = 'rgba(12, 18, 36, 0.84)';
     ctx.strokeStyle = player.hyperReady ? '#fde047' : ch.primary;
     ctx.lineWidth = player.hyperReady ? 3.8 : 2.8;
@@ -5651,7 +5697,7 @@ class AIController {
       Math.random() < diff.aggression
     ) {
       mem.targetX = courier.x;
-      const bubbleY = courier.bubbleY ?? courier.y + 94;
+      const bubbleY = courier.bubbleY ?? courier.y + COURIER_LAYOUT.itemOffsetY;
       mem.targetX = courier.bubbleX ?? courier.x;
       if (Math.abs(mem.targetX - player.x) < 120 && player.y > bubbleY + 30) {
         if (player.onGround || (player.jumpsLeft > 0 && player.vy > -180)) {
@@ -5833,7 +5879,7 @@ class MatchSimulation {
     this.courier = {
       active: this.settings.itemMode !== 'off' && !this.isMinigame,
       x: VIRTUAL_WIDTH / 2,
-      y: 305,
+      y: COURIER_LAYOUT.baseY,
       heldItemId: null,
       spawnTimer: this.settings.itemMode === 'frantic' ? 3.0 : 5.5,
     };
@@ -6951,8 +6997,10 @@ class MatchSimulation {
     // Sky-Cloud Courier Item Pickup!
     if (!p.isClone && !p.heldItem && this.courier.active && this.courier.heldItemId) {
       const bx = this.courier.bubbleX ?? this.courier.x;
-      const by = this.courier.bubbleY ?? this.courier.y + 94;
-      if (Math.hypot(p.x - bx, p.y - by) < p.halfH + 42) {
+      const by = this.courier.bubbleY ?? this.courier.y + COURIER_LAYOUT.itemOffsetY;
+      const nearestX = Math.max(p.x - p.halfW, Math.min(p.x + p.halfW, bx));
+      const nearestY = Math.max(p.y - p.halfH, Math.min(p.y + p.halfH, by));
+      if (Math.hypot(nearestX - bx, nearestY - by) <= COURIER_LAYOUT.bubbleRadius) {
         p.heldItem = this.courier.heldItemId;
         this.courier.heldItemId = null;
         this.courier.spawnTimer = this.settings.itemMode === 'frantic' ? 4.8 : 9.0;
@@ -8298,11 +8346,11 @@ class MatchSimulation {
   _updateCourier(dt) {
     if (!this.courier.active) return;
     this.courier.x = VIRTUAL_WIDTH / 2 + Math.sin(this.time * 0.65) * 430;
-    this.courier.y = 305 + Math.sin(this.time * 1.3) * 46;
+    this.courier.y = COURIER_LAYOUT.baseY + Math.sin(this.time * 1.3) * 46;
     this.courier.vx = Math.cos(this.time * 0.65) * 430 * 0.65;
     this.courier.vy = Math.cos(this.time * 1.3) * 46 * 1.3;
     this.courier.bubbleX = this.courier.x - this.courier.vx * 0.09 + Math.sin(this.time * 4.2) * 8;
-    this.courier.bubbleY = this.courier.y + 94;
+    this.courier.bubbleY = this.courier.y + COURIER_LAYOUT.itemOffsetY;
 
     if (!this.courier.heldItemId) {
       this.courier.spawnTimer -= dt;
@@ -12146,7 +12194,7 @@ class SuperKickKingdomApp {
 
     // 8. Articulated 2D Character Puppets (12 Strikers + Shadow Clones)
     for (const pl of scene.players) {
-      this.art.drawCharacterPuppet(ctx, pl, scene.balls, visualTime);
+      this.art.drawCharacterPuppet(ctx, pl, scene.balls, visualTime, { onField: true });
     }
 
     // 9. Soccer Balls (6 Skins, Rugby Egg-Ball, Magnus Spin Trails, Combo Voltage & Vanish Shot)

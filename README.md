@@ -143,6 +143,12 @@ The renderer derives cell size from the image and bounds its caches:
 six recent character sheets, 192 recolored/silhouette frames and three
 terrain surfaces.
 
+On-field strikers use a shared 128-unit drawing baseline, with character stats
+providing relative size rather than scaling large characters twice. Selection
+and podium previews retain their larger presentation. Lakitu and the item
+bubble share layout dimensions with pickup detection and AI targeting; item
+icons fit their visible artwork instead of the atlas's transparent padding.
+
 The portable optimization/validation tool requires Python and Pillow:
 
 ```powershell

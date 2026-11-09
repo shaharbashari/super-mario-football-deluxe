@@ -3263,7 +3263,7 @@ export class SuperKickKingdomApp {
 
     // 8. Articulated 2D Character Puppets (12 Strikers + Shadow Clones)
     for (const pl of scene.players) {
-      this.art.drawCharacterPuppet(ctx, pl, scene.balls, visualTime);
+      this.art.drawCharacterPuppet(ctx, pl, scene.balls, visualTime, { onField: true });
     }
 
     // 9. Soccer Balls (6 Skins, Rugby Egg-Ball, Magnus Spin Trails, Combo Voltage & Vanish Shot)

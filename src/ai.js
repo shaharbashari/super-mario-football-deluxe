@@ -1,7 +1,7 @@
 // Super Kick Kingdom 2.0 (Deluxe Edition) — Predictive Kung-Foot AI Controller
 // Supports 4 difficulty tiers, 2v2 roles, Holo-Clones, Hyper-Strikes, Stage Hazards & all 18 Items
 
-import { AI_DIFFICULTIES, VIRTUAL_WIDTH } from './config.js';
+import { AI_DIFFICULTIES, VIRTUAL_WIDTH, COURIER_LAYOUT } from './config.js';
 
 export class AIController {
   constructor() {
@@ -205,7 +205,7 @@ export class AIController {
       Math.random() < diff.aggression
     ) {
       mem.targetX = courier.x;
-      const bubbleY = courier.bubbleY ?? courier.y + 94;
+      const bubbleY = courier.bubbleY ?? courier.y + COURIER_LAYOUT.itemOffsetY;
       mem.targetX = courier.bubbleX ?? courier.x;
       if (Math.abs(mem.targetX - player.x) < 120 && player.y > bubbleY + 30) {
         if (player.onGround || (player.jumpsLeft > 0 && player.vy > -180)) {

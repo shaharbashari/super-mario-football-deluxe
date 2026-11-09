@@ -299,6 +299,104 @@ test('all stadiums, characters, kits and moving entities render with bounded cac
   await page.screenshot({ path: info.outputPath('stadium.png') });
 });
 
+test('field proportions shrink the roster without shrinking previews or their foot anchors', async ({ page }, info) => {
+  await boot(page);
+  await start(page);
+  const measurements = await page.evaluate(async () => {
+    const { CHARACTERS } = await import('/src/config.js');
+    const { CHAR_SPRITE_METRICS } = await import('/src/art.js');
+    const art = app.art;
+    const originalSheet = art._getCharSheet;
+    const originalFrame = art._drawCharFrame;
+    const records = [];
+    try {
+      art._getCharSheet = () => ({});
+      for (const character of CHARACTERS) {
+        const player = { ...app.match.players[0], char: character, onGround: true,
+          vx: 0, vy: 0, visualScale: 1, squashX: 1, squashY: 1,
+          chargeTime: 0, hyperReady: false, dashGhosts: [], kickTimer: 0, stunTimer: 0 };
+        const calls = [];
+        art._drawCharFrame = (ctx, ch, col, row, x, y, width, height) => calls.push({ y, width, height });
+        art.drawCharacterPuppet(app.ctx, player, [], 0, { onField: true });
+        const field = calls.at(-1);
+        art.drawCharacterPuppet(app.ctx, player, [], 0);
+        const preview = calls.at(-1);
+        records.push({ id: character.id, field: field.width, preview: preview.width,
+          foot: field.y + field.height * CHAR_SPRITE_METRICS[character.id].footY });
+      }
+    } finally {
+      art._getCharSheet = originalSheet;
+      art._drawCharFrame = originalFrame;
+    }
+    return records;
+  });
+  for (const measurement of measurements) {
+    expect(measurement.field, measurement.id).toBe(128);
+    expect(measurement.field, measurement.id).toBeLessThan(measurement.preview);
+    expect(measurement.foot, measurement.id).toBeCloseTo(52);
+  }
+  await page.evaluate(() => {
+    app.charIdx1 = 5;
+    app.startMatch();
+    app.paused = true;
+    const match = app.match;
+    match.phase = 'playing';
+    match.bannerTimer = 0;
+    match.time = 0;
+    match.players.forEach(player => {
+      player.y = match.arena.pitchFloorY - player.halfH;
+      player.onGround = true;
+      player.vx = 0;
+      player.vy = 0;
+    });
+    match.players[0].heldItem = 'RedMushroom';
+    match.players[1].heldItem = 'TinyMushroom';
+    match._updateCourier(0);
+    match.courier.heldItemId = 'TinyMushroom';
+    Object.assign(match.balls[0], { x: 960, y: 750, vx: 0, vy: 0 });
+    app._renderMatchCanvas();
+  });
+  await page.waitForFunction(() => app.art.pendingAssets === 0);
+  await page.screenshot({ path: info.outputPath('field-proportions-desktop.png') });
+});
+
+test('item artwork fills its intended radius and Lakitu is fifty percent larger', async ({ page }) => {
+  await boot(page);
+  const result = await page.evaluate(async () => {
+    const { ITEMS } = await import('/src/config.js');
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const dimensions = [];
+    for (const item of ITEMS) {
+      ctx.clearRect(0, 0, 128, 128);
+      app.art.drawItemIcon(ctx, item.id, 64, 64, 40, 0);
+      const pixels = ctx.getImageData(0, 0, 128, 128).data;
+      let left = 128, right = 0, top = 128, bottom = 0;
+      for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) {
+        if (pixels[(y * 128 + x) * 4 + 3] > 20) {
+          left = Math.min(left, x); right = Math.max(right, x);
+          top = Math.min(top, y); bottom = Math.max(bottom, y);
+        }
+      }
+      dimensions.push({ id: item.id, size: Math.max(right - left + 1, bottom - top + 1) });
+    }
+    let courierWidth = 0;
+    const draw = ctx.drawImage.bind(ctx);
+    ctx.drawImage = (image, ...args) => {
+      if (image === app.art.sprites.props_atlas) courierWidth = args[6] * ctx.getTransform().a;
+      draw(image, ...args);
+    };
+    app.art.drawCloudCourier(ctx, { active: true, x: 64, y: 64, vx: 0, heldItemId: null }, 0);
+    return { dimensions, courierWidth };
+  });
+  for (const item of result.dimensions) {
+    expect(item.size, item.id).toBeGreaterThanOrEqual(70);
+    expect(item.size, item.id).toBeLessThanOrEqual(86);
+  }
+  expect(result.courierWidth).toBe(180);
+});
+
 test('all existing mode families launch through their menu flows', async ({ page }) => {
   await boot(page);
   await page.locator('#btn-mode-cups').click();
@@ -432,6 +530,10 @@ test.describe('touch play', () => {
     await page.mouse.move(stick.x + stick.width + 90, stick.y + 40);
     await page.mouse.up();
     expect(await page.evaluate(() => app.input.touchState.right)).toBe(false);
+    await page.evaluate(() => {
+      app.match.courier.heldItemId = 'TinyMushroom';
+      app.match.players[0].heldItem = 'RedMushroom';
+    });
     await page.screenshot({ path: info.outputPath('touch-match.png') });
     await page.locator('#touch-btn-pause').dispatchEvent('pointerdown', { pointerId: 7, pointerType: 'touch' });
     await expect(page.locator('#modal-pause')).toBeVisible();

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MatchSimulation } from '../src/physics.js';
 import { AIController } from '../src/ai.js';
-import { CHARACTERS, ARENAS, ITEMS, DEFAULT_SETTINGS, STRIKER_TRIALS } from '../src/config.js';
+import { CHARACTERS, ARENAS, ITEMS, DEFAULT_SETTINGS, STRIKER_TRIALS, COURIER_LAYOUT } from '../src/config.js';
 import { characterFrame, itemMotion } from '../src/animation.js';
 
 const make = (arenaId = 'meadow', extra = {}) => new MatchSimulation({
@@ -72,6 +72,30 @@ test('shells and banana projectiles cannot teleport up the lower goal ledge', ()
   for (const entity of [match.shells[0], match.bananas[0]]) {
     assert.ok(entity.y > 850);
     assert.ok(entity.vx > 0);
+  }
+});
+
+test('courier pickup follows the enlarged bubble instead of the old item position', () => {
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const match = make('meadow', { settings: { ...DEFAULT_SETTINGS, itemMode: 'standard' } });
+    match._updateCourier(0);
+    assert.equal(match.courier.bubbleY - match.courier.y, COURIER_LAYOUT.itemOffsetY);
+    const player = match.players[0];
+    match.courier.heldItemId = 'SuperStar';
+    const reachX = player.halfW + COURIER_LAYOUT.bubbleRadius;
+    const reachY = player.halfH + COURIER_LAYOUT.bubbleRadius;
+    Object.assign(player, {
+      x: match.courier.bubbleX + dx * (reachX + 1),
+      y: match.courier.bubbleY + dy * (reachY + 1),
+      vx: 0, vy: 0, onGround: false,
+    });
+    match._updatePlayer(player, {}, 0);
+    assert.equal(player.heldItem, null, 'Outside the visible bubble must not collect');
+    player.x -= dx * 2;
+    player.y -= dy * 2;
+    match._updatePlayer(player, {}, 0);
+    assert.equal(player.heldItem, 'SuperStar', 'Touching the visible bubble must collect');
+    assert.equal(match.courier.heldItemId, null);
   }
 });
 

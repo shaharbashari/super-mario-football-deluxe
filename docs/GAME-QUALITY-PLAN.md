@@ -140,7 +140,7 @@ or online multiplayer are added by this overhaul.
 | Simulation | Fixed 120 Hz stepping, presentation interpolation, input buffering at high refresh rates and during hitstop, correct riser/platform/body resolution, matching shell/banana ledge behavior, immediate strike parries and explicit own-goal accounting. |
 | Challenges | Isolated trial rules, actual meteor-goal attribution, safe lava-trial starts, lava-contact tracking, objective HUD and golden-goal continuation after tied mayhem. |
 | Onboarding | Replayable mode/stadium briefings and a five-skill, learning-by-doing practice session. Keyboard, standard gamepad and touch prompts reflect the active player and actual bindings. No practice rewards can inflate progression. |
-| Animation | State-local clocks across the whole roster, including previously frozen stun/pound states; grounded pose pivots, eased lean/kicks, interpolated movement, all-item secondary motion, keeper recoil and moving-prop polish. This reuses the supplied poses rather than claiming new hand-drawn character art. |
+| Animation | State-local clocks across the whole roster, including previously frozen stun/pound states; grounded pose pivots, eased lean/kicks, interpolated movement, all-item secondary motion, keeper recoil and moving-prop polish. Field sprites use a smaller shared baseline without shrinking previews; Lakitu and visible item art are enlarged. This reuses the supplied poses rather than claiming new hand-drawn character art. |
 | Audio | Three arrangement choices, longer four-phrase variation, independent ambience and effects palettes, landing/footstep/coach/hazard cues, audio-clock scheduling, pause handling and a 64-voice budget. |
 | Stadiums | All seven have actionable teaching notes. Cloud decks now interact with balls, lower goal ledges resolve correctly, and lava/icicles have visible warning lanes and audible warnings. |
 | Reliability | Validated/recoverable local saves with visible failures, observable asset loading, portable test imports/runner, reproducible bundle checking and offline font-independent startup. |
@@ -181,8 +181,8 @@ executed or that all future combinations are defect-free.
 
 ### Remaining verification boundaries
 
-The completed verification includes 27 Node test entries (including the four
-restored original suites), 26 Chromium browser scenarios, exact bundle drift
+The completed verification includes 28 Node test entries (including the four
+restored original suites), 28 Chromium browser scenarios, exact bundle drift
 checking, and decoding every image plus checking all 1,248 used character
 frames. Layout coverage includes 1920x1080, 1280x720, 1024x768, 844x390,
 667x375 and 390x844. Guided practice was also completed through real browser
