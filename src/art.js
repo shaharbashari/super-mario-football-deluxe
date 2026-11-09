@@ -1,11 +1,7 @@
-// Super Kick Kingdom 2.0 (Deluxe Edition) — Cutting-Edge 2.5D Sprite & Shader-Style Canvas Renderer
-// Features:
-// - 15 Transparent RGBA Cel-Shaded PNG Sprite Atlases (12 6-pose Strikers, Props, Balls & 18 Power-Ups)
-// - GPU-Accelerated Offscreen Alternate Kit Re-Coloring & Pose-Accurate Silhouette Afterimage Cache (100% file:// safe — zero getImageData!)
-// - Pre-Baked 2.5D Textured Biome Masonry, Perspective Turf Stripes, Swaying Grass, Planar Floor Reflections & 3D Brushed Goalposts
-// - Dynamic Additive Lighting & Bloom Pass, Multi-Layer Anime Crescent Slashes & HD Painted Hyper-Strike Portrait Cut-Ins
+// Canvas renderer with bounded frame caches, shared animation timing and readable hazard cues.
 
 import { VIRTUAL_WIDTH, VIRTUAL_HEIGHT, CHARACTERS, ITEMS, BALL_SKINS } from './config.js';
+import { characterFrame, itemMotion } from './animation.js';
 
 const INK = '#151020';
 
@@ -67,113 +63,17 @@ const KIT_FILTER_SPECS = {
   'bowser_jr:2': { filter: 'hue-rotate(-32deg) saturate(0.62) brightness(1.20) contrast(1.08)', glaze: '#fef08a', glazeAlpha: 0.12 },
 };
 
-// Animation definitions across all 12 strikers — 24+ FPS ultra-fluid master playback!
-const CHAR_ANIM_METRICS = {
-  mario: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 24, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  luigi: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 24, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  peach: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 24, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  yoshi: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 26, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  wario: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 24, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  bowser: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 24, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  waluigi: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 25, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  rosalina: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 24, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  toad: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 26, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  donkey_kong: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 24, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  king_boo: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 24, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  bowser_jr: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 25, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-};
-
 export class ArtRenderer {
   constructor() {
     this.images = {};
     this.sprites = {};
-    this._kitCache = {};
-    this._silhouetteCache = {};
+    this._frameCache = new Map();
+    this._charUse = new Map();
     this._terrainCache = {};
+    this.requested = new Set();
+    this.pendingAssets = 0;
+    this.failedAssets = [];
+    this.reducedMotion = false;
     this._loadImages();
   }
 
@@ -191,29 +91,43 @@ export class ArtRenderer {
       'arena_cosmos',
     ];
     for (const k of bgKeys) {
-      const img = new Image();
-      img.decoding = 'async';
-      img.src = `./assets/images/${k}.jpg`;
-      img.onload = () => {
-        this.images[k] = img;
-      };
+      this._requestImage(k, `./assets/images/${k}.jpg`, this.images);
     }
 
     const spriteKeys = [
-      ...CHARACTERS.map((c) => `char_${c.id}`),
       ...CHARACTERS.map((c) => `portrait_${c.id}`),
       'props_atlas',
       'balls_atlas',
       'items_atlas',
     ];
     for (const sk of spriteKeys) {
-      const img = new Image();
-      img.decoding = 'async';
-      img.src = `./assets/sprites/${sk}.png`;
-      img.onload = () => {
-        this.sprites[sk] = img;
-      };
+      this._requestImage(sk, `./assets/sprites/${sk}.png`, this.sprites);
     }
+  }
+
+  _requestImage(key, url, target) {
+    if (typeof Image === 'undefined' || this.requested.has(key)) return;
+    this.requested.add(key);
+    this.pendingAssets++;
+    const image = new Image();
+    image.decoding = 'async';
+    const finish = () => {
+      this.pendingAssets--;
+      this.onAssetStatus?.(this.pendingAssets, [...this.failedAssets]);
+      if (this.pendingAssets === 0) this.onAssetsReady?.();
+    };
+    image.onload = () => {
+      if (!key.startsWith('char_') || this._charUse.has(key)) target[key] = image;
+      else this.requested.delete(key);
+      finish();
+    };
+    image.onerror = () => {
+      this.failedAssets.push(key);
+      console.error(`Game asset failed to load: ${url}`);
+      finish();
+    };
+    image.src = url;
+    this.onAssetStatus?.(this.pendingAssets, [...this.failedAssets]);
   }
 
   _makeOffscreen(w, h) {
@@ -227,68 +141,66 @@ export class ArtRenderer {
     return null;
   }
 
-  // Lazily builds & caches alternate-jersey spritesheets on GPU without getImageData() (100% file:// safe!)
+  // Keep only the recently used character sheets; derived frames have a separate budget.
   _getCharSheet(ch) {
-    const base = this.sprites[`char_${ch.id}`];
-    if (!base) return null;
-    const kitIdx = ch.kitIdx || 0;
-    if (kitIdx === 0) return base;
-
-    const key = `${ch.id}:${kitIdx}`;
-    if (this._kitCache[key]) return this._kitCache[key];
-
-    const w = base.naturalWidth || base.width || 768;
-    const h = base.naturalHeight || base.height || 512;
-    const off = this._makeOffscreen(w, h);
-    if (!off) return base;
-
-    const spec = KIT_FILTER_SPECS[key] || {
-      filter: `hue-rotate(${kitIdx * 115}deg) saturate(1.18)`,
-      glaze: ch.primary,
-      glazeAlpha: 0.12,
-    };
-
-    const octx = off.ctx;
-    octx.save();
-    if ('filter' in octx) {
-      octx.filter = spec.filter;
+    const key = `char_${ch.id}`;
+    this._charUse.delete(key);
+    this._charUse.set(key, true);
+    if (this._charUse.size > 6) {
+      const oldest = this._charUse.keys().next().value;
+      this._charUse.delete(oldest);
+      if (this.sprites[oldest]) this.requested.delete(oldest);
+      delete this.sprites[oldest];
     }
-    octx.drawImage(base, 0, 0, w, h);
-    octx.filter = 'none';
-
-    if (spec.glaze && spec.glazeAlpha) {
-      octx.globalCompositeOperation = 'source-atop';
-      octx.globalAlpha = spec.glazeAlpha;
-      octx.fillStyle = spec.glaze;
-      octx.fillRect(0, 0, w, h);
+    const base = this.sprites[key];
+    if (!base) {
+      this._requestImage(key, `./assets/sprites/${key}.png`, this.sprites);
+      return null;
     }
-    octx.restore();
-
-    this._kitCache[key] = off.canvas;
-    return off.canvas;
+    return base;
   }
 
-  // Lazily builds & caches a solid-colored silhouette sheet for pose-accurate anime dash afterimages & rim glows!
-  _getSilhouetteSheet(charId, color) {
-    const base = this.sprites[`char_${charId}`];
-    if (!base) return null;
-    const key = `${charId}|${color}`;
-    if (this._silhouetteCache[key]) return this._silhouetteCache[key];
-
-    const w = base.naturalWidth || base.width || 768;
-    const h = base.naturalHeight || base.height || 512;
-    const off = this._makeOffscreen(w, h);
-    if (!off) return null;
-
-    const octx = off.ctx;
-    octx.drawImage(base, 0, 0, w, h);
-    octx.globalCompositeOperation = 'source-in';
-    octx.fillStyle = color;
-    octx.fillRect(0, 0, w, h);
-    octx.globalCompositeOperation = 'source-over';
-
-    this._silhouetteCache[key] = off.canvas;
-    return off.canvas;
+  _drawCharFrame(ctx, ch, col, row, x, y, width, height, color = null) {
+    const sheet = this._getCharSheet(ch);
+    if (!sheet) return;
+    const cellW = (sheet.naturalWidth || sheet.width) / 24;
+    const cellH = (sheet.naturalHeight || sheet.height) / 6;
+    const kit = ch.kitIdx || 0;
+    if (!kit && !color) {
+      ctx.drawImage(sheet, col * cellW, row * cellH, cellW, cellH, x, y, width, height);
+      return;
+    }
+    const key = `${ch.id}:${color || kit}:${row}:${col}`;
+    let frame = this._frameCache.get(key);
+    if (frame) {
+      this._frameCache.delete(key);
+      this._frameCache.set(key, frame);
+    } else {
+      const off = this._makeOffscreen(cellW, cellH);
+      if (!off) {
+        ctx.drawImage(sheet, col * cellW, row * cellH, cellW, cellH, x, y, width, height);
+        return;
+      }
+      const spec = KIT_FILTER_SPECS[`${ch.id}:${kit}`];
+      if (!color && spec && 'filter' in off.ctx) off.ctx.filter = spec.filter;
+      off.ctx.drawImage(sheet, col * cellW, row * cellH, cellW, cellH, 0, 0, cellW, cellH);
+      off.ctx.filter = 'none';
+      if (color || spec?.glaze) {
+        off.ctx.globalCompositeOperation = color ? 'source-in' : 'source-atop';
+        off.ctx.globalAlpha = color ? 1 : spec.glazeAlpha;
+        off.ctx.fillStyle = color || spec.glaze;
+        off.ctx.fillRect(0, 0, cellW, cellH);
+      }
+      frame = off.canvas;
+      this._frameCache.set(key, frame);
+      if (this._frameCache.size > 192) {
+        const [oldKey, oldFrame] = this._frameCache.entries().next().value;
+        this._frameCache.delete(oldKey);
+        oldFrame.width = 0;
+        oldFrame.height = 0;
+      }
+    }
+    ctx.drawImage(frame, x, y, width, height);
   }
 
   // --- Helper Drawing Primitives ---
@@ -338,7 +250,7 @@ export class ArtRenderer {
       if (portrait) {
         ctx.drawImage(portrait, cx - size * 0.5, cy - size * 0.5, size, size);
       } else {
-        ctx.drawImage(sheet, 18, 6, 220, 195, cx - size * 0.52, cy - size * 0.48, size * 1.04, size * 0.96);
+        this._drawCharFrame(ctx, charObj, 0, 0, cx - size * 0.52, cy - size * 0.48, size * 1.04, size * 0.96);
       }
     } else {
       ctx.fillStyle = charObj.primary;
@@ -444,6 +356,11 @@ export class ArtRenderer {
 
     this._renderStaticArenaArchitecture(off.ctx, arena);
     this._terrainCache[arena.id] = off.canvas;
+    if (Object.keys(this._terrainCache).length > 3) {
+      const oldest = Object.keys(this._terrainCache)[0];
+      this._terrainCache[oldest].width = 0;
+      delete this._terrainCache[oldest];
+    }
     return off.canvas;
   }
 
@@ -837,9 +754,7 @@ export class ArtRenderer {
             ctx.translate(pl.x, pitchFloorY + 4 + dist * 0.22);
             ctx.scale(pl.facing * (pl.visualScale || 1) * pl.char.stats.size, -0.45 * (pl.visualScale || 1) * pl.char.stats.size);
             const { col, row } = this._selectCharFrameCoords(pl, time);
-            const sx = col * 256;
-            const sy = row * 256;
-            ctx.drawImage(sheet, sx, sy, 256, 256, -75, -142, 150, 150);
+            this._drawCharFrame(ctx, pl.char, col, row, -75, -142, 150, 150);
             ctx.restore();
           }
         }
@@ -1221,6 +1136,7 @@ export class ArtRenderer {
     if (hazardsOn && matchState.icicles) {
       for (const ic of matchState.icicles) {
         if (!ic.active) continue;
+        if (ic.state === 'warn') this._drawHazardWarning(ctx, ic.x, arena.pitchFloorY, 48, ic.timer, 'ICE', arena.pitchFloorY - 30);
         ctx.save();
         const shakeX = ic.state === 'warn' ? Math.sin(time * 58) * 4.5 : 0;
         ctx.translate(ic.x + shakeX, ic.y);
@@ -1254,6 +1170,7 @@ export class ArtRenderer {
     // 4. Magma Keep: Volcanic Lava Geyser Vents & Roaring Plasma Plumes
     if (hazardsOn && matchState.lavaVents) {
       for (const lv of matchState.lavaVents) {
+        if (lv.state === 'warn') this._drawHazardWarning(ctx, lv.x, arena.pitchFloorY, 82, lv.timer, 'LAVA', 250);
         ctx.save();
         ctx.translate(lv.x, arena.pitchFloorY - 4);
         if (lv.state === 'erupt') {
@@ -1420,6 +1337,25 @@ export class ArtRenderer {
   // =========================================================================
   // 4. SKY-COURIER & ALL 18 CEL-SHADED POWER-UP SPRITES
   // =========================================================================
+  _drawHazardWarning(ctx, x, floor, width, remaining, label, height) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 201, 88, 0.13)';
+    ctx.fillRect(x - width / 2, floor - height, width, height);
+    ctx.strokeStyle = '#ffe3a0';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([12, 8]);
+    ctx.strokeRect(x - width / 2, floor - height, width, height);
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#111d2c';
+    this.roundRect(ctx, x - 65, floor - 60, 130, 32, 7);
+    ctx.fill();
+    ctx.fillStyle = '#ffe4a8';
+    ctx.textAlign = 'center';
+    ctx.font = '800 18px system-ui, sans-serif';
+    ctx.fillText(`${label} ${Math.max(0, remaining).toFixed(1)}s`, x, floor - 38);
+    ctx.restore();
+  }
+
   drawCloudCourier(ctx, courier, time) {
     if (!courier.active) return;
     const { x, y, heldItemId } = courier;
@@ -1455,7 +1391,7 @@ export class ArtRenderer {
 
     // 2. Trailing Fishing Line & Item Bubble with Inertia Sway
     if (heldItemId) {
-      const inertiaSway = -vx * 0.09 + Math.sin(time * 4.2) * 8;
+      const inertiaSway = courier.bubbleX !== undefined ? courier.bubbleX - courier.x : -vx * 0.09 + Math.sin(time * 4.2) * 8;
       ctx.strokeStyle = INK;
       ctx.lineWidth = 4.5;
       ctx.beginPath();
@@ -1464,7 +1400,7 @@ export class ArtRenderer {
       ctx.stroke();
 
       const bx = inertiaSway;
-      const by = 94;
+      const by = courier.bubbleY !== undefined ? courier.bubbleY - courier.y : 94;
       const pulse = 1 + Math.sin(time * 7) * 0.06;
       ctx.save();
       ctx.translate(bx, by);
@@ -1540,9 +1476,10 @@ export class ArtRenderer {
       const sz = r * 2.32;
       ctx.save();
       ctx.translate(x, y);
-      if (itemId === 'SuperStar') {
-        ctx.rotate(Math.sin(time * 4.5) * 0.14);
-      }
+      const motion = itemMotion(itemId, this.reducedMotion ? 0 : time);
+      ctx.translate(0, motion.y);
+      ctx.rotate(motion.rotation);
+      ctx.scale(motion.scaleX, motion.scaleY);
       const cellW = (atlas.naturalWidth || atlas.width || 1536) / 6;
       const cellH = (atlas.naturalHeight || atlas.height || 768) / 3;
       ctx.drawImage(atlas, col * cellW, row * cellH, cellW, cellH, -sz / 2, -sz / 2, sz, sz);
@@ -1564,61 +1501,12 @@ export class ArtRenderer {
   }
 
   // =========================================================================
-  // 5. ALL 12 STRIKERS — FLUID MULTI-FRAME ANIMATION (10x6 SPRITE ATLAS) + ANIME SECONDARY VFX
+  // 5. Character animation: 24-column, six-row atlases and continuous secondary motion.
   // =========================================================================
   _selectCharFrameCoords(player, time) {
-    const ch = player.char;
-    const cfg = CHAR_ANIM_METRICS[ch.id] || CHAR_ANIM_METRICS.mario;
-
-    if (player.stunTimer > 0) {
-      const anim = cfg.ouch;
-      const phase = player.animPhase !== undefined ? player.animPhase : time;
-      const fIdx = Math.floor(phase * anim.fps) % anim.count;
-      return { col: fIdx, row: anim.row };
-    }
-
-    if (player.groundPoundState === 'stall') {
-      const anim = cfg.jump;
-      return { col: 7, row: anim.row };
-    }
-    if (player.groundPoundState === 'plunge') {
-      const anim = cfg.jump;
-      return { col: 11, row: anim.row };
-    }
-    if (player.groundPoundState === 'impact') {
-      const anim = cfg.jump;
-      return { col: 14, row: anim.row };
-    }
-
-    if (player.kickTimer > 0) {
-      const isUp = player.kickType === 'up';
-      const anim = isUp ? cfg.kickup : cfg.kickside;
-      const dur = player.kickDuration || 0.22;
-      const prog = Math.min(1, Math.max(0, 1 - player.kickTimer / dur));
-      const fIdx = Math.min(anim.count - 1, Math.floor(prog * anim.count));
-      return { col: fIdx, row: anim.row };
-    }
-
-    if (!player.onGround) {
-      const anim = cfg.jump;
-      // Smooth continuous physics mapping across all 16 frames:
-      const vyNorm = Math.min(1, Math.max(0, (player.vy + 550) / 1100));
-      const fIdx = Math.min(anim.count - 1, Math.floor(vyNorm * anim.count));
-      return { col: fIdx, row: anim.row };
-    }
-
-    const speedX = Math.abs(player.vx || 0);
-    if (speedX > 38) {
-      const anim = cfg.run;
-      const phase = player.animPhase !== undefined ? player.animPhase : time;
-      const fIdx = Math.floor(phase * anim.fps) % anim.count;
-      return { col: fIdx, row: anim.row };
-    }
-
-    const anim = cfg.idle;
-    const phase = player.animPhase !== undefined ? player.animPhase : time;
-    const fIdx = Math.floor(phase * anim.fps) % anim.count;
-    return { col: fIdx, row: anim.row };
+    if (this.reducedMotion && player.onGround && Math.abs(player.vx || 0) <= 38 &&
+        !player.kickTimer && !player.stunTimer) return { col: 0, row: 0 };
+    return characterFrame(player, time);
   }
 
   _selectCharFrame(player, time) {
@@ -1633,8 +1521,6 @@ export class ArtRenderer {
     const sheet = this._getCharSheet(ch);
     const metrics = CHAR_SPRITE_METRICS[ch.id] || CHAR_SPRITE_METRICS.mario;
     const { col, row } = this._selectCharFrameCoords(player, time);
-    const sx = col * 256;
-    const sy = row * 256;
 
     // 1. Soft Ground Contact Shadow
     if (player.shadowY !== undefined) {
@@ -1660,16 +1546,15 @@ export class ArtRenderer {
 
     // 2. Pose-Accurate Chromatic Sprite Silhouette Dash Afterimages!
     if (player.dashGhosts && player.dashGhosts.length > 0) {
-      const sil = this._getSilhouetteSheet(ch.id, ch.aura || ch.primary);
       for (const g of player.dashGhosts) {
         ctx.save();
         ctx.globalAlpha = g.alpha * 0.58;
         ctx.translate(g.x, g.y);
         ctx.scale(facing * scale, scale);
-        if (sil) {
+        if (sheet) {
           const dSz = metrics.drawSize;
           const topY = 53 - dSz * metrics.footY;
-          ctx.drawImage(sil, sx, sy, 256, 256, -dSz * 0.5, topY, dSz, dSz);
+          this._drawCharFrame(ctx, ch, col, row, -dSz * 0.5, topY, dSz, dSz, ch.aura || ch.primary);
         } else {
           ctx.fillStyle = ch.aura;
           ctx.beginPath();
@@ -1774,7 +1659,7 @@ export class ArtRenderer {
     const isKicking = player.kickTimer > 0;
     const isStunned = player.stunTimer > 0;
     const strideY = player.strideBounce || 0;
-    const sprintLean = isRunning ? facing * 0.065 : 0;
+    const sprintLean = player.animLean || (isRunning ? facing * 0.045 : 0);
 
     const floatBobY =
       ch.id === 'king_boo'
@@ -1783,36 +1668,39 @@ export class ArtRenderer {
 
     let poseRot = (player.spinAngle || 0) + sprintLean;
     if (isKicking) {
-      if (player.kickType === 'up') poseRot += facing * -0.32;
-      else if (player.kickType === 'spike') poseRot += facing * 0.32;
-      else poseRot += facing * 0.04;
+      const stroke = Math.sin(Math.PI * Math.min(1, 1 - player.kickTimer / (player.kickDuration || 0.21)));
+      if (player.kickType === 'up') poseRot += facing * -0.32 * stroke;
+      else if (player.kickType === 'spike') poseRot += facing * 0.32 * stroke;
+      else poseRot += facing * 0.06 * stroke;
     }
 
     ctx.save();
     ctx.translate(0, floatBobY + strideY);
+    const footPivot = player.onGround && !player.spinAngle ? 52 : 0;
+    ctx.translate(0, footPivot * scale);
     ctx.rotate(poseRot);
 
     ctx.scale(facing * (player.squashX || 1) * scale, (player.squashY || 1) * scale);
+    ctx.translate(0, -footPivot);
 
     if (sheet) {
       const dSz = metrics.drawSize;
       const airOffset = row === 2 || row === 5 ? metrics.airShiftY : 0;
-      const topY = 53 - dSz * metrics.footY + airOffset;
+      const topY = 52 - dSz * metrics.footY + airOffset;
 
       // Glowing Rim-Flash Underlay when Hyper-Ready, Parrying, or Holo-Clone!
       if (player.hyperReady || player.parryFlashTimer > 0 || player.isClone) {
         const rimCol = player.isClone ? '#38bdf8' : '#fde047';
-        const rimSil = this._getSilhouetteSheet(ch.id, rimCol);
-        if (rimSil) {
+        if (sheet) {
           ctx.save();
           ctx.globalAlpha = player.parryFlashTimer > 0 ? 0.9 : 0.65;
-          ctx.drawImage(rimSil, sx, sy, 256, 256, -dSz * 0.5 - 3.5, topY - 3.5, dSz + 7, dSz + 7);
+          this._drawCharFrame(ctx, ch, col, row, -dSz * 0.5 - 3.5, topY - 3.5, dSz + 7, dSz + 7, rimCol);
           ctx.restore();
         }
       }
 
       // Draw Crisp HD Cel-Shaded Character Sprite!
-      ctx.drawImage(sheet, sx, sy, 256, 256, -dSz * 0.5, topY, dSz, dSz);
+      this._drawCharFrame(ctx, ch, col, row, -dSz * 0.5, topY, dSz, dSz);
 
       // Big Head Mutator: Hilarious 1.68x Bobble-Head Magnifier Pass!
       if (player.bigHead) {
@@ -1824,7 +1712,7 @@ export class ArtRenderer {
         ctx.beginPath();
         ctx.rect(-dSz * 0.55, -dSz * 0.48, dSz * 1.1, dSz * 0.50);
         ctx.clip();
-        ctx.drawImage(sheet, sx, sy, 256, 256, -dSz * 0.5, -dSz * 0.44, dSz, dSz);
+        this._drawCharFrame(ctx, ch, col, row, -dSz * 0.5, -dSz * 0.44, dSz, dSz);
         ctx.restore();
       }
 
@@ -1907,7 +1795,7 @@ export class ArtRenderer {
     // Sleek Floating Player Indicator Pill above Head
     ctx.save();
     const extraHeadH = player.bigHead ? 28 * scale : 0;
-    const tagY = player.y - 78 * scale - extraHeadH - Math.sin(time * 5) * 3;
+    const tagY = player.y + (52 - metrics.drawSize * metrics.footY) * scale - 18 - extraHeadH;
     ctx.fillStyle = 'rgba(12, 18, 36, 0.84)';
     ctx.strokeStyle = player.hyperReady ? '#fde047' : ch.primary;
     ctx.lineWidth = player.hyperReady ? 3.8 : 2.8;
@@ -2150,6 +2038,8 @@ export class ArtRenderer {
     const props = this.sprites.props_atlas;
     ctx.save();
     ctx.translate(keeper.x, keeper.y + bob);
+    const recoil = Math.sin(Math.max(0, keeper.recoilTimer || 0) / 0.22 * Math.PI) * 0.12;
+    ctx.scale(1 + recoil, 1 - recoil);
 
     if (props) {
       ctx.save();
@@ -2223,15 +2113,16 @@ export class ArtRenderer {
   drawBananaEntity(ctx, banana, time) {
     ctx.save();
     ctx.translate(banana.x, banana.y);
+    if (Math.abs(banana.vx || 0) > 20 || Math.abs(banana.vy || 0) > 20) ctx.rotate(time * 6 * Math.sign(banana.vx || 1));
     this.drawItemIcon(ctx, 'BananaBunch', 0, 0, 26, time);
     ctx.restore();
   }
 
   drawShellEntity(ctx, shell, time) {
-    if (shell.timer < 1.8 && Math.floor(time * 16) % 2 === 0) return;
+    if (!this.reducedMotion && shell.timer < 1.8 && Math.floor(time * 16) % 2 === 0) return;
     ctx.save();
     ctx.translate(shell.x, shell.y);
-    const squish = 1 + Math.sin(time * 30) * 0.09;
+    const squish = 1 + Math.sin(time * 12) * 0.06;
     ctx.scale(squish, 2 - squish);
     this.drawItemIcon(ctx, 'GreenShell', 0, 0, shell.radius * 1.08, time);
     ctx.restore();
@@ -2397,7 +2288,7 @@ export class ArtRenderer {
     const ch = cutIn.char;
     const sheet = this._getCharSheet(ch);
     const alpha = Math.min(1, cutIn.timer * 4.5);
-    const slideIn = Math.max(0, (0.75 - Math.min(0.75, cutIn.timer)) * 0);
+    const slideIn = this.reducedMotion ? 0 : -Math.pow(Math.max(0, (cutIn.timer - 0.36) / 0.16), 3) * 360;
 
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -2438,11 +2329,8 @@ export class ArtRenderer {
 
     // HD Painted Character Action Portrait Bust on Left of Banner!
     if (sheet) {
-      const goldSil = this._getSilhouetteSheet(ch.id, '#fde047');
-      if (goldSil) {
-        ctx.drawImage(goldSil, 256, 256, 256, 256, -688, -142, 310, 310);
-      }
-      ctx.drawImage(sheet, 256, 256, 256, 256, -678, -136, 300, 300);
+      this._drawCharFrame(ctx, ch, 1, 1, -688, -142, 310, 310, '#fde047');
+      this._drawCharFrame(ctx, ch, 1, 1, -678, -136, 300, 300);
     }
 
     ctx.restore(); // end ribbon clip

@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
-import path from 'node:path';
-
-const projectRoot = '/Users/shbashar/.gemini/antigravity/scratch/super-kick-kingdom';
-const { MatchSimulation } = await import(path.join(projectRoot, 'src/physics.js'));
-const { DEFAULT_SETTINGS } = await import(path.join(projectRoot, 'src/config.js'));
+import { MatchSimulation } from './src/physics.js';
+import { DEFAULT_SETTINGS } from './src/config.js';
 
 const neutralInput = () => ({
   left: false,

@@ -1,15 +1,12 @@
 import assert from 'node:assert/strict';
-import path from 'node:path';
-
-const projectRoot = '/Users/shbashar/.gemini/antigravity/scratch/super-kick-kingdom';
-const { MatchSimulation } = await import(path.join(projectRoot, 'src/physics.js'));
-const {
+import { MatchSimulation } from './src/physics.js';
+import {
   CHARACTERS,
   DEFAULT_SETTINGS,
   STRIKER_TRIALS,
   TROPHIES,
-} = await import(path.join(projectRoot, 'src/config.js'));
-const { CHAR_SPRITE_METRICS } = await import(path.join(projectRoot, 'src/art.js'));
+} from './src/config.js';
+import { CHAR_SPRITE_METRICS } from './src/art.js';
 
 console.log('Testing Character Proportions, Striker Trials & Physics Mutators...');
 
@@ -63,12 +60,13 @@ console.log('Testing Character Proportions, Striker Trials & Physics Mutators...
   // Scoring without meteor spike should NOT count toward trial goals
   sim.scores[0] = 2;
   p1.stats.goals = 2;
-  p1.stats.meteorSpikes = 1; // only 1 spike
+  p1.stats.meteorSpikes = 5;
+  p1.stats.meteorGoals = 1;
   let summary = sim.getSummary();
   assert.equal(summary.trialSuccess, false, 'Should fail trial if target meteor spikes not met');
 
-  // Meeting 2 meteor spikes
-  p1.stats.meteorSpikes = 2;
+  // Only actual qualifying goals count, not unrelated spike contacts.
+  p1.stats.meteorGoals = 2;
   summary = sim.getSummary();
   assert.equal(summary.trialSuccess, true, 'Should succeed trial when 2 meteor spikes achieved');
   console.log('✓ Trial 1 (Meteor Spike Master) objective validation verified');

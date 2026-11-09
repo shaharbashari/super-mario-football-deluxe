@@ -8,23 +8,34 @@ export class AudioEngine {
     this.masterGain = null;
     this.musicGain = null;
     this.sfxGain = null;
+    this.ambienceGain = null;
     this.noiseBuffer = null;
 
     this.currentTrack = null;
     this.musicTimer = null;
     this.stepIndex = 0;
     this.urgentTempo = false;
+    this.paused = false;
+    this.voices = new Set();
+    this.nextNoteTime = 0;
+    this.musicStepTime = null;
+    this.phrase = 0;
   }
 
   unlock() {
     if (!this.ctx) {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return;
+      const AudioCtx = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
+      if (!AudioCtx) {
+        if (!this.unavailableReported) console.warn('Web Audio is unavailable. The game will run without sound.');
+        this.unavailableReported = true;
+        return;
+      }
       this.ctx = new AudioCtx();
 
       this.masterGain = this.ctx.createGain();
       this.musicGain = this.ctx.createGain();
       this.sfxGain = this.ctx.createGain();
+      this.ambienceGain = this.ctx.createGain();
 
       // Gentle compressor keeps big chaotic moments punchy without clipping
       const comp = this.ctx.createDynamicsCompressor();
@@ -36,6 +47,7 @@ export class AudioEngine {
 
       this.musicGain.connect(this.masterGain);
       this.sfxGain.connect(this.masterGain);
+      this.ambienceGain.connect(this.masterGain);
       this.masterGain.connect(comp);
       comp.connect(this.ctx.destination);
 
@@ -43,7 +55,10 @@ export class AudioEngine {
       this.syncVolumes();
     }
     if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      this.ctx.resume().catch(error => {
+        console.warn('Audio could not resume. Use the Sound button to try again.', error);
+        this.onError?.('Audio could not start. Tap Sound to try again.');
+      });
     }
   }
 
@@ -65,12 +80,42 @@ export class AudioEngine {
     this.masterGain.gain.setTargetAtTime(master, now, 0.02);
     this.musicGain.gain.setTargetAtTime(this.settings.musicVolume * 0.42, now, 0.03);
     this.sfxGain.gain.setTargetAtTime(this.settings.sfxVolume, now, 0.02);
+    this.ambienceGain.gain.setTargetAtTime(this.settings.ambienceVolume ?? 0.25, now, 0.03);
   }
 
   toggleMute() {
+    this.unlock();
     this.settings.muted = !this.settings.muted;
     this.syncVolumes();
     return this.settings.muted;
+  }
+
+  setPaused(paused) {
+    if (this.paused === Boolean(paused)) return;
+    this.paused = Boolean(paused);
+    if (this.paused) {
+      for (const voice of [...this.voices]) if (voice.music) this._stopVoice(voice);
+    }
+    if (this.ctx) this.nextNoteTime = this.ctx.currentTime + 0.03;
+  }
+
+  _stopVoice(voice) {
+    this.voices.delete(voice);
+    voice.gain.gain.cancelScheduledValues(this.ctx.currentTime);
+    voice.gain.gain.setValueAtTime(0, this.ctx.currentTime);
+    voice.source.stop();
+  }
+
+  _trackVoice(source, gain, nodes, music) {
+    while (this.voices.size >= 64) this._stopVoice(this.voices.values().next().value);
+    const voice = { source, gain, music };
+    this.voices.add(voice);
+    source.onended = () => {
+      this.voices.delete(voice);
+      source.disconnect();
+      gain.disconnect();
+      for (const node of nodes) node.disconnect();
+    };
   }
 
   _tone({
@@ -84,7 +129,21 @@ export class AudioEngine {
     dest = null,
   }) {
     if (!this.ctx) return;
-    const t0 = this.ctx.currentTime + delay;
+    const music = dest === this.musicGain;
+    const t0 = Math.max(this.ctx.currentTime, music ? this.musicStepTime ?? this.ctx.currentTime : this.ctx.currentTime) + delay;
+    if (!music) {
+      const variation = 0.985 + Math.random() * 0.03;
+      freq *= variation;
+      if (endFreq !== null) endFreq *= variation;
+      if (this.settings.soundPalette === 'soft') {
+        gain *= 0.65;
+        if (type === 'sawtooth' || type === 'square') type = 'triangle';
+      } else if (this.settings.soundPalette === 'punchy') gain *= 1.08;
+    } else if (this.settings.musicStyle === 'chill') {
+      gain *= 0.75;
+      if (type === 'square' || type === 'sawtooth') type = 'sine';
+      duration *= 1.3;
+    }
     const osc = this.ctx.createOscillator();
     const g = this.ctx.createGain();
     osc.type = type;
@@ -100,6 +159,7 @@ export class AudioEngine {
     g.connect(dest || this.sfxGain);
     osc.start(t0);
     osc.stop(t0 + duration + 0.02);
+    this._trackVoice(osc, g, [], music);
   }
 
   _noise({
@@ -112,7 +172,9 @@ export class AudioEngine {
     dest = null,
   }) {
     if (!this.ctx || !this.noiseBuffer) return;
-    const t0 = this.ctx.currentTime + delay;
+    const music = dest === this.musicGain || dest === this.ambienceGain;
+    const t0 = Math.max(this.ctx.currentTime, music ? this.musicStepTime ?? this.ctx.currentTime : this.ctx.currentTime) + delay;
+    if (!music && this.settings.soundPalette === 'soft') gain *= 0.6;
     const src = this.ctx.createBufferSource();
     src.buffer = this.noiseBuffer;
     const filter = this.ctx.createBiquadFilter();
@@ -129,6 +191,28 @@ export class AudioEngine {
     g.connect(dest || this.sfxGain);
     src.start(t0);
     src.stop(t0 + duration + 0.02);
+    this._trackVoice(src, g, [filter], music);
+  }
+
+  playCoachCue() {
+    this._tone({ freq: 660, type: 'sine', duration: 0.12, gain: 0.12 });
+    this._tone({ freq: 880, type: 'sine', duration: 0.18, gain: 0.1, delay: 0.09 });
+  }
+
+  playFootstep(arena = 'meadow', weight = 1) {
+    const bright = arena === 'glacier' || arena === 'cosmos';
+    this._noise({ duration: 0.045, gain: 0.035 * weight, filterType: 'lowpass', freq: bright ? 2800 : 650 });
+  }
+
+  playLanding(arena = 'meadow', weight = 1) {
+    this._tone({ freq: arena === 'glacier' ? 350 : 100, endFreq: 55, duration: 0.08, gain: 0.08 * weight, type: 'sine' });
+    this._noise({ duration: 0.07, gain: 0.06, freq: arena === 'jungle' ? 700 : 1300 });
+  }
+
+  playHazardWarning(type) {
+    const frequency = type === 'ice' ? 1200 : 420;
+    this._tone({ freq: frequency, type: 'sine', duration: 0.1, gain: 0.12 });
+    this._tone({ freq: frequency * 1.2, type: 'sine', duration: 0.12, gain: 0.1, delay: 0.16 });
   }
 
   // --- UI & Locker Room Sounds ---
@@ -459,6 +543,8 @@ export class AudioEngine {
     this.currentTrack = track;
     this.stepIndex = 0;
     this.urgentTempo = false;
+    if (!this.ctx) return;
+    this.nextNoteTime = this.ctx.currentTime + 0.04;
 
     const baseTempos = {
       menu: 162,
@@ -475,15 +561,26 @@ export class AudioEngine {
 
     const tick = () => {
       if (this.currentTrack !== track) return;
-      if (this.ctx && this.ctx.state === 'running' && !this.settings.muted) {
-        this._playMusicStep(track, this.stepIndex);
+      const now = this.ctx.currentTime;
+      if (this.paused || this.ctx.state !== 'running') {
+        this.nextNoteTime = now + 0.04;
+      } else {
+        if (this.nextNoteTime < now) this.nextNoteTime = now + 0.015;
+        while (this.nextNoteTime < now + 0.12) {
+          this.musicStepTime = this.nextNoteTime;
+          this.phrase = Math.floor(this.stepIndex / 32);
+          if (!this.settings.muted) {
+            this._playMusicStep(track, this.stepIndex % 32);
+            this._playArrangement(track, this.stepIndex % 32);
+          }
+          this.stepIndex = (this.stepIndex + 1) % 128;
+          const styleRate = this.settings.musicStyle === 'club' ? 0.88 : this.settings.musicStyle === 'chill' ? 1.22 : 1;
+          const urgency = track !== 'menu' && track !== 'victory' && this.urgentTempo ? 0.8 : 1;
+          this.nextNoteTime += ((baseTempos[track] || 136) / 1000) * styleRate * urgency;
+        }
       }
-      this.stepIndex = (this.stepIndex + 1) % 32;
-      let stepMs = baseTempos[track] || 136;
-      if (track !== 'menu' && track !== 'victory' && this.urgentTempo) {
-        stepMs = Math.round(stepMs * 0.78);
-      }
-      this.musicTimer = setTimeout(tick, stepMs);
+      this.musicStepTime = null;
+      this.musicTimer = setTimeout(tick, 25);
     };
     tick();
   }
@@ -498,12 +595,35 @@ export class AudioEngine {
       this.musicTimer = null;
     }
     this.currentTrack = null;
+    for (const voice of [...this.voices]) if (voice.music) this._stopVoice(voice);
+    this.musicStepTime = null;
+  }
+
+  _playArrangement(track, step) {
+    const dest = this.musicGain;
+    const root = { menu: 130.81, meadow: 110, sky: 146.83, castle: 82.41, manor: 110, jungle: 98, glacier: 130.81, cosmos: 110, victory: 130.81 }[track] || 110;
+    const progression = [1, 4 / 3, 1.5, 1.25][this.phrase];
+    if (step % 8 === 0) {
+      for (const ratio of [1, 1.5, 2]) {
+        this._tone({ freq: root * ratio * progression, duration: 0.6, gain: 0.035, attack: 0.05, type: 'sine', dest });
+      }
+    }
+    if (this.settings.musicStyle === 'club') {
+      if (step % 4 === 0) this._tone({ freq: 90, endFreq: 34, duration: 0.13, gain: 0.24, type: 'sine', dest });
+      if (step % 2 === 1) this._noise({ duration: 0.035, gain: 0.055, filterType: 'highpass', freq: 6000, dest });
+    } else if (this.phrase === 3 && step >= 28) {
+      this._noise({ duration: 0.04, gain: 0.055, filterType: 'bandpass', freq: 1800 + step * 70, dest });
+    }
+    if (track !== 'menu' && track !== 'victory' && step % 16 === 0 && this.settings.ambienceVolume > 0) {
+      const frequency = { meadow: 750, sky: 1800, castle: 180, manor: 420, jungle: 1100, glacier: 2400, cosmos: 540 }[track] || 750;
+      this._noise({ duration: 1.1, gain: 0.07, filterType: 'bandpass', freq: frequency, q: 0.5, dest: this.ambienceGain });
+    }
   }
 
   _playMusicStep(track, step) {
     const dest = this.musicGain;
     const isMatchTrack = track !== 'menu' && track !== 'victory';
-    const shift = isMatchTrack && this.urgentTempo ? 1.122 : 1.0;
+    const shift = (isMatchTrack && this.urgentTempo ? 1.122 : 1.0) * [1, 1, 1.12246, 1][this.phrase];
 
     if (track === 'menu') {
       const bass = [

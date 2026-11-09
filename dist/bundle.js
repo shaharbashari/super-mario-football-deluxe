@@ -4,7 +4,7 @@
 
 // === src/config.js ===
 // Super Kick Kingdom 2.0 (Deluxe Edition) — Master Configuration
-// 12 Strikers (+3 Kits each), 7 Hazard Arenas, 18 Items, 7 Mutators, 4 Cups, Locker Room & 24 Trophies
+// 12 strikers, 7 stadiums, 18 items, 9 mutators, 4 cups and 26 trophies.
 const VIRTUAL_WIDTH = 1920;
 const VIRTUAL_HEIGHT = 1080;
 const CHARACTERS = [
@@ -339,7 +339,7 @@ const ITEMS = [
   {
     id: 'RedMushroom',
     name: 'Super Mushroom',
-    desc: 'Grow 2.1x huge with booming reach, tackle armor & shot power for 6s!',
+    desc: 'Grow 2x huge with booming reach and shot power for 6s!',
     color: '#ef4444',
     weight: 12,
     competitive: true,
@@ -420,7 +420,7 @@ const ITEMS = [
   {
     id: 'SuperStar',
     name: 'Super Star',
-    desc: '5s rainbow invincibility, +30% speed & tackle foes on contact!',
+    desc: '5.2s rainbow invincibility, +32% speed & tackle foes on contact!',
     color: '#facc15',
     weight: 8,
     competitive: true,
@@ -444,7 +444,7 @@ const ITEMS = [
   {
     id: 'MagnetGlove',
     name: 'Magnet Glove',
-    desc: 'Curves & magnetically pulls balls toward your striker for 3.8s!',
+    desc: 'Curves & magnetically pulls balls toward your striker for 4s!',
     color: '#e11d48',
     weight: 10,
     competitive: true,
@@ -452,7 +452,7 @@ const ITEMS = [
   {
     id: 'ShadowClone',
     name: 'Double Cherry',
-    desc: 'Clones an exact AI striker double to assist in 2v1 volleys for 7s!',
+    desc: 'An AI striker double assists your team for 7.5s (up to two clones).',
     color: '#8b5cf6',
     weight: 8,
     competitive: true,
@@ -909,7 +909,8 @@ const STRIKER_TRIALS = [
     playerChar: 'rosalina',
     opponents: [{ charId: 'bowser_jr', team: 1, aiDifficulty: 'striker' }],
     mutators: ['floorIsLava'],
-    ruleText: 'Stay on platforms or in the air — touching lava bounces you!',
+    specialRule: 'no_lava',
+    ruleText: 'Start on the central platform. Win without touching the molten floor!',
     rewardCoins: 130,
   },
   {
@@ -1029,13 +1030,64 @@ const DEFAULT_SETTINGS = {
   masterVolume: 0.8,
   musicVolume: 0.55,
   sfxVolume: 0.85,
+  ambienceVolume: 0.25,
+  musicStyle: 'stadium',
+  soundPalette: 'arcade',
+  motion: 'auto',
+  showTips: true,
   muted: false,
 };
-
 const STORAGE_KEY = 'super_kick_kingdom_deluxe_v2';
-function loadSaveData() {
+let recoverySave = null;
+
+const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const validKey = code => typeof code === 'string' &&
+  /^(Key[A-Z]|Digit[0-9]|Arrow(Up|Down|Left|Right)|Space|Enter|Shift(Left|Right)|Control(Left|Right)|Numpad([0-9]|Add|Subtract|Multiply|Divide|Decimal|Enter)|Backslash|Slash|Comma|Period|Quote|Semicolon|Bracket(Left|Right)|Minus|Equal|Backquote)$/.test(code);
+
+function hasRecoveredFields(source, recovered) {
+  if (!isRecord(source) || !isRecord(recovered)) return JSON.stringify(source) !== JSON.stringify(recovered);
+  return Object.keys(source).some(key => key !== 'version' && Object.hasOwn(recovered, key) &&
+    (isRecord(source[key]) && isRecord(recovered[key])
+      ? hasRecoveredFields(source[key], recovered[key])
+      : JSON.stringify(source[key]) !== JSON.stringify(recovered[key])));
+}
+function normalizeSettings(value) {
+  const source = isRecord(value) ? value : {};
+  const result = { ...DEFAULT_SETTINGS, activeMutators: [] };
+  const choices = {
+    matchDuration: [0, 60, 120, 180, 300],
+    scoreLimit: [0, 3, 5, 7, 10],
+    suddenDeathMode: ['golden', 'mayhem'],
+    itemMode: ['standard', 'frantic', 'competitive', 'off'],
+    ballPreset: Object.keys(BALL_PRESETS),
+    aiDifficulty: Object.keys(AI_DIFFICULTIES),
+    touchControls: ['auto', 'on', 'off'],
+    musicStyle: ['stadium', 'club', 'chill'],
+    soundPalette: ['arcade', 'punchy', 'soft'],
+    motion: ['auto', 'full', 'reduced'],
+    equippedBallSkin: BALL_SKINS.map(skin => skin.id),
+    equippedGoalExplosion: GOAL_EXPLOSIONS.map(effect => effect.id),
+  };
+  for (const [key, values] of Object.entries(choices)) {
+    if (values.includes(source[key])) result[key] = source[key];
+  }
+  for (const key of ['hyperStrikes', 'stageHazards', 'partyUnlockAll', 'hitstop', 'goalSlowMo', 'muted', 'showTips']) {
+    if (typeof source[key] === 'boolean') result[key] = source[key];
+  }
+  for (const key of ['masterVolume', 'musicVolume', 'sfxVolume', 'ambienceVolume', 'screenShake']) {
+    if (typeof source[key] === 'number' && Number.isFinite(source[key])) {
+      result[key] = Math.max(0, Math.min(key === 'screenShake' ? 1.4 : 1, source[key]));
+    }
+  }
+  if (Array.isArray(source.activeMutators)) {
+    result.activeMutators = [...new Set(source.activeMutators.filter(id => MUTATORS.some(mutator => mutator.id === id)))];
+  }
+  return result;
+}
+function normalizeSaveData(value) {
   const defaultUnlockedChars = CHARACTERS.filter((c) => c.unlockedByDefault).map((c) => c.id);
   const base = {
+    version: 3,
     settings: { ...DEFAULT_SETTINGS, activeMutators: [] },
     controls: JSON.parse(JSON.stringify(DEFAULT_CONTROLS)),
     coins: 150, // Welcome starter purse so players can try the Locker Room right away!
@@ -1045,6 +1097,7 @@ function loadSaveData() {
     wonCups: [],
     trialsWon: [],
     trophies: [],
+    onboarding: { completed: false, seenModes: [] },
     stats: {
       totalGoals: 0,
       matchesPlayed: 0,
@@ -1055,42 +1108,81 @@ function loadSaveData() {
     },
   };
 
+  if (!isRecord(value)) return base;
+  const collection = (key, catalog, defaults = []) => [...new Set([
+    ...defaults, ...(Array.isArray(value[key]) ? value[key].filter(id => catalog.some(entry => entry.id === id)) : []),
+  ])];
+  base.settings = normalizeSettings(value.settings);
+  if (Number.isFinite(value.coins) && typeof value.coins === 'number') base.coins = Math.max(0, Math.floor(value.coins));
+  base.unlockedChars = collection('unlockedChars', CHARACTERS, defaultUnlockedChars);
+  base.unlockedBalls = collection('unlockedBalls', BALL_SKINS, ['classic']);
+  base.unlockedExplosions = collection('unlockedExplosions', GOAL_EXPLOSIONS, ['confetti']);
+  base.wonCups = collection('wonCups', GRAND_PRIX_CUPS);
+  base.trialsWon = collection('trialsWon', STRIKER_TRIALS);
+  base.trophies = collection('trophies', TROPHIES);
+  if (!base.settings.partyUnlockAll) {
+    if (!base.unlockedBalls.includes(base.settings.equippedBallSkin)) base.settings.equippedBallSkin = 'classic';
+    if (!base.unlockedExplosions.includes(base.settings.equippedGoalExplosion)) base.settings.equippedGoalExplosion = 'confetti';
+  }
+  for (const [slot, actions] of Object.entries(base.controls)) {
+    for (const action of Object.keys(actions)) {
+      const saved = value.controls?.[slot]?.[action];
+      if (Array.isArray(saved)) {
+        const codes = [...new Set(saved.filter(validKey))].slice(0, 4);
+        if (codes.length) actions[action] = codes;
+      }
+    }
+  }
+  for (const key of Object.keys(base.stats)) {
+    const saved = value.stats?.[key];
+    if (typeof saved === 'number' && Number.isFinite(saved) && saved >= 0) {
+      base.stats[key] = key === 'keepUpBestTime' ? saved : Math.floor(saved);
+    }
+  }
+  if (isRecord(value.onboarding)) {
+    base.onboarding.completed = value.onboarding.completed === true;
+    const modes = ['practice', '1v1_cpu', '1v1_pvp', '2v2', 'cup', 'tourney', 'trial', 'target_blitz', 'keep_up', 'goalie_gauntlet'];
+    base.onboarding.seenModes = [...new Set((Array.isArray(value.onboarding.seenModes) ? value.onboarding.seenModes : []).filter(mode => modes.includes(mode)))];
+  }
+  return base;
+}
+function loadSaveData(onWarning = message => console.warn(message)) {
+  let raw = null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return base;
+    if (typeof localStorage === 'undefined') return normalizeSaveData(null);
+    raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return normalizeSaveData(null);
     const parsed = JSON.parse(raw);
-    return {
-      ...base,
-      ...parsed,
-      settings: { ...base.settings, ...(parsed.settings || {}) },
-      controls: {
-        p1: { ...DEFAULT_CONTROLS.p1, ...(parsed.controls?.p1 || {}) },
-        p2: { ...DEFAULT_CONTROLS.p2, ...(parsed.controls?.p2 || {}) },
-        p3: { ...DEFAULT_CONTROLS.p3, ...(parsed.controls?.p3 || {}) },
-        p4: { ...DEFAULT_CONTROLS.p4, ...(parsed.controls?.p4 || {}) },
-      },
-      unlockedChars: Array.from(new Set([...defaultUnlockedChars, ...(parsed.unlockedChars || [])])),
-      unlockedBalls: Array.from(new Set(['classic', ...(parsed.unlockedBalls || [])])),
-      unlockedExplosions: Array.from(new Set(['confetti', ...(parsed.unlockedExplosions || [])])),
-      wonCups: parsed.wonCups || [],
-      trialsWon: parsed.trialsWon || [],
-      trophies: parsed.trophies || [],
-      stats: { ...base.stats, ...(parsed.stats || {}) },
-    };
-  } catch {
-    return base;
+    if (!isRecord(parsed)) throw new TypeError('The save must contain an object.');
+    const normalized = normalizeSaveData(parsed);
+    if (hasRecoveredFields(parsed, normalized)) {
+      recoverySave = raw;
+      onWarning('Some saved progress fields were invalid. Valid progress was recovered; the original will be backed up.');
+    }
+    return normalized;
+  } catch (error) {
+    recoverySave = raw;
+    onWarning(`Saved progress could not be loaded: ${error.message}. Playing remains available.`);
+    return normalizeSaveData(null);
   }
 }
-function saveData(data) {
+function saveData(data, onWarning = message => console.warn(message)) {
   try {
+    if (recoverySave !== null) {
+      localStorage.setItem(`${STORAGE_KEY}_recovery`, recoverySave);
+      recoverySave = null;
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch {
-    // Ignore storage quota errors
+    return true;
+  } catch (error) {
+    onWarning(`Progress could not be saved: ${error.message}. Keep this tab open; new progress may be lost on exit.`);
+    return false;
   }
 }
 function getCharacter(id, kitIdx = 0) {
   const base = CHARACTERS.find((c) => c.id === id) || CHARACTERS[0];
-  const kit = base.kits?.[kitIdx % base.kits.length];
+  const index = Number.isInteger(kitIdx) ? ((kitIdx % base.kits.length) + base.kits.length) % base.kits.length : 0;
+  const kit = base.kits?.[index];
   if (!kit) return base;
   return {
     ...base,
@@ -1099,7 +1191,7 @@ function getCharacter(id, kitIdx = 0) {
     accent: kit.accent,
     aura: kit.aura || base.aura,
     kitName: kit.name,
-    kitIdx: kitIdx % base.kits.length,
+    kitIdx: index,
   };
 }
 function getArena(id) {
@@ -1121,23 +1213,34 @@ class AudioEngine {
     this.masterGain = null;
     this.musicGain = null;
     this.sfxGain = null;
+    this.ambienceGain = null;
     this.noiseBuffer = null;
 
     this.currentTrack = null;
     this.musicTimer = null;
     this.stepIndex = 0;
     this.urgentTempo = false;
+    this.paused = false;
+    this.voices = new Set();
+    this.nextNoteTime = 0;
+    this.musicStepTime = null;
+    this.phrase = 0;
   }
 
   unlock() {
     if (!this.ctx) {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return;
+      const AudioCtx = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
+      if (!AudioCtx) {
+        if (!this.unavailableReported) console.warn('Web Audio is unavailable. The game will run without sound.');
+        this.unavailableReported = true;
+        return;
+      }
       this.ctx = new AudioCtx();
 
       this.masterGain = this.ctx.createGain();
       this.musicGain = this.ctx.createGain();
       this.sfxGain = this.ctx.createGain();
+      this.ambienceGain = this.ctx.createGain();
 
       // Gentle compressor keeps big chaotic moments punchy without clipping
       const comp = this.ctx.createDynamicsCompressor();
@@ -1149,6 +1252,7 @@ class AudioEngine {
 
       this.musicGain.connect(this.masterGain);
       this.sfxGain.connect(this.masterGain);
+      this.ambienceGain.connect(this.masterGain);
       this.masterGain.connect(comp);
       comp.connect(this.ctx.destination);
 
@@ -1156,7 +1260,10 @@ class AudioEngine {
       this.syncVolumes();
     }
     if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      this.ctx.resume().catch(error => {
+        console.warn('Audio could not resume. Use the Sound button to try again.', error);
+        this.onError?.('Audio could not start. Tap Sound to try again.');
+      });
     }
   }
 
@@ -1178,12 +1285,42 @@ class AudioEngine {
     this.masterGain.gain.setTargetAtTime(master, now, 0.02);
     this.musicGain.gain.setTargetAtTime(this.settings.musicVolume * 0.42, now, 0.03);
     this.sfxGain.gain.setTargetAtTime(this.settings.sfxVolume, now, 0.02);
+    this.ambienceGain.gain.setTargetAtTime(this.settings.ambienceVolume ?? 0.25, now, 0.03);
   }
 
   toggleMute() {
+    this.unlock();
     this.settings.muted = !this.settings.muted;
     this.syncVolumes();
     return this.settings.muted;
+  }
+
+  setPaused(paused) {
+    if (this.paused === Boolean(paused)) return;
+    this.paused = Boolean(paused);
+    if (this.paused) {
+      for (const voice of [...this.voices]) if (voice.music) this._stopVoice(voice);
+    }
+    if (this.ctx) this.nextNoteTime = this.ctx.currentTime + 0.03;
+  }
+
+  _stopVoice(voice) {
+    this.voices.delete(voice);
+    voice.gain.gain.cancelScheduledValues(this.ctx.currentTime);
+    voice.gain.gain.setValueAtTime(0, this.ctx.currentTime);
+    voice.source.stop();
+  }
+
+  _trackVoice(source, gain, nodes, music) {
+    while (this.voices.size >= 64) this._stopVoice(this.voices.values().next().value);
+    const voice = { source, gain, music };
+    this.voices.add(voice);
+    source.onended = () => {
+      this.voices.delete(voice);
+      source.disconnect();
+      gain.disconnect();
+      for (const node of nodes) node.disconnect();
+    };
   }
 
   _tone({
@@ -1197,7 +1334,21 @@ class AudioEngine {
     dest = null,
   }) {
     if (!this.ctx) return;
-    const t0 = this.ctx.currentTime + delay;
+    const music = dest === this.musicGain;
+    const t0 = Math.max(this.ctx.currentTime, music ? this.musicStepTime ?? this.ctx.currentTime : this.ctx.currentTime) + delay;
+    if (!music) {
+      const variation = 0.985 + Math.random() * 0.03;
+      freq *= variation;
+      if (endFreq !== null) endFreq *= variation;
+      if (this.settings.soundPalette === 'soft') {
+        gain *= 0.65;
+        if (type === 'sawtooth' || type === 'square') type = 'triangle';
+      } else if (this.settings.soundPalette === 'punchy') gain *= 1.08;
+    } else if (this.settings.musicStyle === 'chill') {
+      gain *= 0.75;
+      if (type === 'square' || type === 'sawtooth') type = 'sine';
+      duration *= 1.3;
+    }
     const osc = this.ctx.createOscillator();
     const g = this.ctx.createGain();
     osc.type = type;
@@ -1213,6 +1364,7 @@ class AudioEngine {
     g.connect(dest || this.sfxGain);
     osc.start(t0);
     osc.stop(t0 + duration + 0.02);
+    this._trackVoice(osc, g, [], music);
   }
 
   _noise({
@@ -1225,7 +1377,9 @@ class AudioEngine {
     dest = null,
   }) {
     if (!this.ctx || !this.noiseBuffer) return;
-    const t0 = this.ctx.currentTime + delay;
+    const music = dest === this.musicGain || dest === this.ambienceGain;
+    const t0 = Math.max(this.ctx.currentTime, music ? this.musicStepTime ?? this.ctx.currentTime : this.ctx.currentTime) + delay;
+    if (!music && this.settings.soundPalette === 'soft') gain *= 0.6;
     const src = this.ctx.createBufferSource();
     src.buffer = this.noiseBuffer;
     const filter = this.ctx.createBiquadFilter();
@@ -1242,6 +1396,28 @@ class AudioEngine {
     g.connect(dest || this.sfxGain);
     src.start(t0);
     src.stop(t0 + duration + 0.02);
+    this._trackVoice(src, g, [filter], music);
+  }
+
+  playCoachCue() {
+    this._tone({ freq: 660, type: 'sine', duration: 0.12, gain: 0.12 });
+    this._tone({ freq: 880, type: 'sine', duration: 0.18, gain: 0.1, delay: 0.09 });
+  }
+
+  playFootstep(arena = 'meadow', weight = 1) {
+    const bright = arena === 'glacier' || arena === 'cosmos';
+    this._noise({ duration: 0.045, gain: 0.035 * weight, filterType: 'lowpass', freq: bright ? 2800 : 650 });
+  }
+
+  playLanding(arena = 'meadow', weight = 1) {
+    this._tone({ freq: arena === 'glacier' ? 350 : 100, endFreq: 55, duration: 0.08, gain: 0.08 * weight, type: 'sine' });
+    this._noise({ duration: 0.07, gain: 0.06, freq: arena === 'jungle' ? 700 : 1300 });
+  }
+
+  playHazardWarning(type) {
+    const frequency = type === 'ice' ? 1200 : 420;
+    this._tone({ freq: frequency, type: 'sine', duration: 0.1, gain: 0.12 });
+    this._tone({ freq: frequency * 1.2, type: 'sine', duration: 0.12, gain: 0.1, delay: 0.16 });
   }
 
   // --- UI & Locker Room Sounds ---
@@ -1572,6 +1748,8 @@ class AudioEngine {
     this.currentTrack = track;
     this.stepIndex = 0;
     this.urgentTempo = false;
+    if (!this.ctx) return;
+    this.nextNoteTime = this.ctx.currentTime + 0.04;
 
     const baseTempos = {
       menu: 162,
@@ -1588,15 +1766,26 @@ class AudioEngine {
 
     const tick = () => {
       if (this.currentTrack !== track) return;
-      if (this.ctx && this.ctx.state === 'running' && !this.settings.muted) {
-        this._playMusicStep(track, this.stepIndex);
+      const now = this.ctx.currentTime;
+      if (this.paused || this.ctx.state !== 'running') {
+        this.nextNoteTime = now + 0.04;
+      } else {
+        if (this.nextNoteTime < now) this.nextNoteTime = now + 0.015;
+        while (this.nextNoteTime < now + 0.12) {
+          this.musicStepTime = this.nextNoteTime;
+          this.phrase = Math.floor(this.stepIndex / 32);
+          if (!this.settings.muted) {
+            this._playMusicStep(track, this.stepIndex % 32);
+            this._playArrangement(track, this.stepIndex % 32);
+          }
+          this.stepIndex = (this.stepIndex + 1) % 128;
+          const styleRate = this.settings.musicStyle === 'club' ? 0.88 : this.settings.musicStyle === 'chill' ? 1.22 : 1;
+          const urgency = track !== 'menu' && track !== 'victory' && this.urgentTempo ? 0.8 : 1;
+          this.nextNoteTime += ((baseTempos[track] || 136) / 1000) * styleRate * urgency;
+        }
       }
-      this.stepIndex = (this.stepIndex + 1) % 32;
-      let stepMs = baseTempos[track] || 136;
-      if (track !== 'menu' && track !== 'victory' && this.urgentTempo) {
-        stepMs = Math.round(stepMs * 0.78);
-      }
-      this.musicTimer = setTimeout(tick, stepMs);
+      this.musicStepTime = null;
+      this.musicTimer = setTimeout(tick, 25);
     };
     tick();
   }
@@ -1611,12 +1800,35 @@ class AudioEngine {
       this.musicTimer = null;
     }
     this.currentTrack = null;
+    for (const voice of [...this.voices]) if (voice.music) this._stopVoice(voice);
+    this.musicStepTime = null;
+  }
+
+  _playArrangement(track, step) {
+    const dest = this.musicGain;
+    const root = { menu: 130.81, meadow: 110, sky: 146.83, castle: 82.41, manor: 110, jungle: 98, glacier: 130.81, cosmos: 110, victory: 130.81 }[track] || 110;
+    const progression = [1, 4 / 3, 1.5, 1.25][this.phrase];
+    if (step % 8 === 0) {
+      for (const ratio of [1, 1.5, 2]) {
+        this._tone({ freq: root * ratio * progression, duration: 0.6, gain: 0.035, attack: 0.05, type: 'sine', dest });
+      }
+    }
+    if (this.settings.musicStyle === 'club') {
+      if (step % 4 === 0) this._tone({ freq: 90, endFreq: 34, duration: 0.13, gain: 0.24, type: 'sine', dest });
+      if (step % 2 === 1) this._noise({ duration: 0.035, gain: 0.055, filterType: 'highpass', freq: 6000, dest });
+    } else if (this.phrase === 3 && step >= 28) {
+      this._noise({ duration: 0.04, gain: 0.055, filterType: 'bandpass', freq: 1800 + step * 70, dest });
+    }
+    if (track !== 'menu' && track !== 'victory' && step % 16 === 0 && this.settings.ambienceVolume > 0) {
+      const frequency = { meadow: 750, sky: 1800, castle: 180, manor: 420, jungle: 1100, glacier: 2400, cosmos: 540 }[track] || 750;
+      this._noise({ duration: 1.1, gain: 0.07, filterType: 'bandpass', freq: frequency, q: 0.5, dest: this.ambienceGain });
+    }
   }
 
   _playMusicStep(track, step) {
     const dest = this.musicGain;
     const isMatchTrack = track !== 'menu' && track !== 'victory';
-    const shift = isMatchTrack && this.urgentTempo ? 1.122 : 1.0;
+    const shift = (isMatchTrack && this.urgentTempo ? 1.122 : 1.0) * [1, 1, 1.12246, 1][this.phrase];
 
     if (track === 'menu') {
       const bass = [
@@ -1831,6 +2043,14 @@ class InputManager {
     this.prevPadAxes = new Map();
     this.rebindingCallback = null;
     this.connectedGamepads = 0;
+    this.padSlots = [null, null, null, null];
+    this.disconnectedSlots = [];
+    this.activeSource = 'keyboard';
+    this.activeSlot = 0;
+    this.gameplayActive = false;
+    this.touchDirections = new Set();
+    this.touchVector = { x: 0, y: 0 };
+    this.touchJump = false;
 
     // Mobile / Tablet Touch Controls State for P1
     this.touchState = {
@@ -1843,6 +2063,7 @@ class InputManager {
       downReleased: false,
       jumpPressed: false,
       jumpReleased: false,
+      jumpHeld: false,
       kickDown: false,
       kickPressed: false,
       kickReleased: false,
@@ -1856,23 +2077,23 @@ class InputManager {
       window.addEventListener('keydown', (e) => {
         if (this.rebindingCallback) {
           e.preventDefault();
-          if (e.code !== 'Escape') {
-            this.rebindingCallback(e.code);
-          } else {
-            this.rebindingCallback(null);
-          }
+          const callback = this.rebindingCallback;
           this.rebindingCallback = null;
+          if (e.code !== 'Escape') {
+            callback(e.code);
+          } else {
+            callback(null);
+          }
           return;
         }
 
-        // Prevent arrow keys / space from scrolling page during gameplay
-        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
-          if (document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'SELECT') {
-            e.preventDefault();
-          }
-        }
-
-        if (!this.keysDown.has(e.code)) {
+        if (this.isEditingField() && !['Escape', 'F11'].includes(e.code) && !(e.altKey && e.code === 'Enter')) return;
+        this.activeSource = 'keyboard';
+        const owner = [0, 1, 2, 3].find(slot => this.isBound(e.code, [slot]));
+        if (owner !== undefined) this.activeSlot = owner;
+        if ((this.gameplayActive && this.isBound(e.code)) ||
+            e.code === 'F11' || (e.altKey && e.code === 'Enter')) e.preventDefault();
+        if (!e.repeat && !this.keysDown.has(e.code)) {
           this.keysJustPressed.add(e.code);
         }
         this.keysDown.add(e.code);
@@ -1884,8 +2105,11 @@ class InputManager {
       });
 
       window.addEventListener('blur', () => {
-        this.keysDown.clear();
+        this.clearAll();
       });
+      window.addEventListener('pointerdown', event => {
+        if (event.pointerType === 'touch') this.activeSource = 'touch';
+      }, { passive: true });
     }
   }
 
@@ -1895,6 +2119,45 @@ class InputManager {
 
   cancelRebind() {
     this.rebindingCallback = null;
+  }
+
+  isEditingField() {
+    return typeof document !== 'undefined' &&
+      Boolean(document.activeElement?.closest('input, select, textarea, [contenteditable="true"]'));
+  }
+
+  clearAll() {
+    this.keysDown.clear();
+    this.keysJustPressed.clear();
+    this.keysJustReleased.clear();
+    this.clearTouch();
+    this._snapshotGamepads();
+  }
+
+  clearTouch() {
+    this.touchDirections.clear();
+    this.touchVector = { x: 0, y: 0 };
+    this.touchJump = false;
+    for (const key of Object.keys(this.touchState)) this.touchState[key] = false;
+  }
+
+  bindingConflict(playerKey, action, code) {
+    if (['Escape', 'Tab', 'F11', 'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight'].includes(code)) {
+      return 'That key is reserved for navigation or fullscreen.';
+    }
+    for (const [slot, actions] of Object.entries(this.controls)) {
+      for (const [name, codes] of Object.entries(actions)) {
+        if ((slot !== playerKey || name !== action) && codes.includes(code)) {
+          return `${formatKeyCode(code)} is already assigned to ${slot.toUpperCase()} ${name}.`;
+        }
+      }
+    }
+    return null;
+  }
+
+  isBound(code, slots = [0, 1, 2, 3]) {
+    return slots.some(slot => Object.values(this.controls[`p${slot + 1}`] || {})
+      .some(codes => codes.includes(code)));
   }
 
   wasKeyJustPressed(code) {
@@ -1920,39 +2183,19 @@ class InputManager {
   }
 
   setTouchDirection(dir, isDown) {
-    if (dir === 'left') this.touchState.left = isDown;
-    if (dir === 'right') this.touchState.right = isDown;
-    if (dir === 'up') {
-      if (isDown && !this.touchState.up) {
-        this.touchState.upPressed = true;
-        this.touchState.jumpPressed = true;
-      }
-      if (!isDown && this.touchState.up) {
-        this.touchState.jumpReleased = true;
-      }
-      this.touchState.up = isDown;
-    }
-    if (dir === 'down') {
-      if (isDown && !this.touchState.down) {
-        this.touchState.downPressed = true; // Air flick -> Ground Pound!
-      }
-      if (!isDown && this.touchState.down) {
-        this.touchState.downReleased = true;
-      }
-      this.touchState.down = isDown;
-    }
+    if (isDown) this.activeSource = 'touch';
+    if (dir === 'up' && isDown && !this.touchDirections.has(dir)) this.touchState.jumpPressed = true;
+    if (isDown) this.touchDirections.add(dir);
+    else this.touchDirections.delete(dir);
+    this._syncTouchDirections();
   }
 
   setTouchAction(action, isDown) {
+    if (isDown) this.activeSource = 'touch';
     if (action === 'jump') {
-      if (isDown && !this.touchState.up) {
-        this.touchState.jumpPressed = true;
-        this.touchState.upPressed = true;
-      }
-      if (!isDown && this.touchState.up) {
-        this.touchState.jumpReleased = true;
-      }
-      this.touchState.up = isDown;
+      if (isDown && !this.touchJump) this.touchState.jumpPressed = true;
+      this.touchJump = isDown;
+      this._syncTouchDirections();
     } else if (action === 'strike') {
       if (isDown && !this.touchState.kickDown) this.touchState.kickPressed = true;
       if (!isDown && this.touchState.kickDown) this.touchState.kickReleased = true;
@@ -1968,56 +2211,65 @@ class InputManager {
   }
 
   setTouchVector(x, y) {
-    const deadzone = 0.22;
-    const prevDown = this.touchState.down;
-    const prevUp = this.touchState.up;
+    if (Math.hypot(x, y) > 0.22) this.activeSource = 'touch';
+    if (y < -0.32 && this.touchVector.y >= -0.32) this.touchState.jumpPressed = true;
+    this.touchVector = { x, y };
+    this._syncTouchDirections();
+  }
 
-    this.touchState.left = x < -deadzone;
-    this.touchState.right = x > deadzone;
-    this.touchState.up = y < -0.32;
-    this.touchState.down = y > 0.35;
-
-    if (this.touchState.up && !prevUp) {
-      this.touchState.upPressed = true;
-      this.touchState.jumpPressed = true;
-    }
-    if (!this.touchState.up && prevUp) {
-      this.touchState.jumpReleased = true;
-    }
-    if (this.touchState.down && !prevDown) {
-      this.touchState.downPressed = true;
-    }
-    if (!this.touchState.down && prevDown) {
-      this.touchState.downReleased = true;
-    }
+  _syncTouchDirections() {
+    const state = this.touchState;
+    const wasUp = state.up, wasDown = state.down, wasJump = state.jumpHeld;
+    state.left = this.touchDirections.has('left') || this.touchVector.x < -0.22;
+    state.right = this.touchDirections.has('right') || this.touchVector.x > 0.22;
+    state.up = this.touchDirections.has('up') || this.touchVector.y < -0.32;
+    state.down = this.touchDirections.has('down') || this.touchVector.y > 0.35;
+    state.jumpHeld = state.up || this.touchJump;
+    if (state.up && !wasUp) state.upPressed = true;
+    if (!state.jumpHeld && wasJump) state.jumpReleased = true;
+    if (state.down && !wasDown) state.downPressed = true;
+    if (!state.down && wasDown) state.downReleased = true;
   }
 
   _getGamepads() {
-    if (typeof navigator === 'undefined' || !navigator.getGamepads) return [];
-    const raw = navigator.getGamepads();
-    if (!raw) return [];
-    const list = [];
-    for (let i = 0; i < raw.length; i++) {
-      if (raw[i] && raw[i].connected) list.push(raw[i]);
+    let raw = [];
+    if (typeof navigator !== 'undefined' && navigator.getGamepads) {
+      try {
+        raw = navigator.getGamepads() || [];
+      } catch (error) {
+        if (error.name !== 'SecurityError') throw error;
+        if (!this.padAccessWarning) console.warn('Gamepad access is unavailable in this browser context.', error);
+        this.padAccessWarning = true;
+      }
     }
-    this.connectedGamepads = list.length;
+    const list = Array.from(raw).filter(pad => pad?.connected && (!pad.mapping || pad.mapping === 'standard'));
+    for (let slot = 0; slot < this.padSlots.length; slot++) {
+      const index = this.padSlots[slot];
+      if (index !== null && !list.some(pad => pad.index === index)) {
+        this.padSlots[slot] = null;
+        this.prevPadButtons.delete(index);
+        this.prevPadAxes.delete(index);
+        this.disconnectedSlots.push(slot);
+      }
+    }
+    for (const pad of list) {
+      if (!this.padSlots.includes(pad.index)) {
+        const free = this.padSlots.indexOf(null);
+        if (free !== -1) this.padSlots[free] = pad.index;
+      }
+      const changed = pad.buttons.some((_, i) => this._padJustPressed(pad, i)) ||
+        [0, 1].some(axis => this._padAxisCrossed(pad, axis, 0.38, 1) || this._padAxisCrossed(pad, axis, -0.38, -1));
+      if (changed) {
+        this.activeSource = 'gamepad';
+        this.activeSlot = this.padSlots.indexOf(pad.index);
+      }
+    }
+    this.connectedGamepads = Math.min(4, list.length);
     return list;
   }
 
   getGamepad(slotIndex) {
-    if (typeof navigator === 'undefined' || !navigator.getGamepads) return null;
-    const raw = navigator.getGamepads();
-    if (!raw) return null;
-    // Prefer direct port index if valid and connected
-    if (raw[slotIndex] && raw[slotIndex].connected) {
-      return raw[slotIndex];
-    }
-    // Fall back to active connected list
-    const active = [];
-    for (let i = 0; i < raw.length; i++) {
-      if (raw[i] && raw[i].connected) active.push(raw[i]);
-    }
-    return active[slotIndex] || null;
+    return this._getGamepads().find(pad => pad.index === this.padSlots[slotIndex]) || null;
   }
 
   _snapshotGamepads() {
@@ -2068,7 +2320,7 @@ class InputManager {
   wasStartJustPressed() {
     const pads = this._getGamepads();
     for (const pad of pads) {
-      if (this._padJustPressed(pad, XINPUT_BUTTONS.START) || this._padJustPressed(pad, XINPUT_BUTTONS.BACK)) {
+      if (this._padJustPressed(pad, XINPUT_BUTTONS.START)) {
         return true;
       }
     }
@@ -2122,6 +2374,7 @@ class InputManager {
 
     let jumpPressed = keySlotMap ? checkPressed(keySlotMap.up) : false;
     let jumpReleased = keySlotMap ? checkReleased(keySlotMap.up) : false;
+    let jumpHeld = up;
 
     let kickDown = keySlotMap ? checkDown(keySlotMap.kick) : false;
     let kickPressed = keySlotMap ? checkPressed(keySlotMap.kick) : false;
@@ -2168,6 +2421,7 @@ class InputManager {
       if (this._padJustReleased(pad, XINPUT_BUTTONS.A) || this._padJustReleased(pad, XINPUT_BUTTONS.UP)) {
         jumpReleased = true;
       }
+      jumpHeld ||= this._padBtnIsDown(pad, XINPUT_BUTTONS.A) || dUp;
 
       // Button 2 (X / Square): Strike & Charge Kick
       if (this._padBtnIsDown(pad, XINPUT_BUTTONS.X)) kickDown = true;
@@ -2209,6 +2463,7 @@ class InputManager {
       if (this.touchState.downReleased) downReleased = true;
       if (this.touchState.jumpPressed) jumpPressed = true;
       if (this.touchState.jumpReleased) jumpReleased = true;
+      if (this.touchState.jumpHeld) jumpHeld = true;
       if (this.touchState.kickDown) kickDown = true;
       if (this.touchState.kickPressed) kickPressed = true;
       if (this.touchState.kickReleased) kickReleased = true;
@@ -2225,12 +2480,13 @@ class InputManager {
       down,
       upPressed,
       downPressed,
-      downReleased,
+      downReleased: downReleased && !down,
       jumpPressed,
-      jumpReleased,
+      jumpReleased: jumpReleased && !jumpHeld,
+      jumpHeld,
       kickDown,
       kickPressed,
-      kickReleased,
+      kickReleased: kickReleased && !kickDown,
       lobDown,
       lobPressed,
       itemPressed,
@@ -2268,6 +2524,8 @@ class TouchController {
     this.dismissedPortrait = false;
     this.stickPointerId = null;
     this.stickCenter = null;
+    this.pointerBindings = new Map();
+    this.nativeFullscreen = false;
 
     if (typeof document !== 'undefined' && (this.isTouch || this.isMobile)) {
       document.body.classList.add('is-touch-device');
@@ -2276,6 +2534,7 @@ class TouchController {
     if (typeof window !== 'undefined') {
       this._bindOrientationEvents();
       this._bindTouchButtons();
+      window.addEventListener('blur', () => this.resetPointers());
       this.checkOrientation();
     }
   }
@@ -2283,7 +2542,7 @@ class TouchController {
   _bindOrientationEvents() {
     window.addEventListener('resize', () => this.checkOrientation());
     window.addEventListener('orientationchange', () => this.checkOrientation());
-    if (screen && screen.orientation) {
+    if (typeof screen !== 'undefined' && screen.orientation?.addEventListener) {
       screen.orientation.addEventListener('change', () => this.checkOrientation());
     }
 
@@ -2341,6 +2600,7 @@ class TouchController {
     const el = document.documentElement;
 
     if (!isFull) {
+      let native = false;
       try {
         const req =
           el.requestFullscreen ||
@@ -2349,21 +2609,22 @@ class TouchController {
           el.msRequestFullscreen;
         if (req) {
           await req.call(el);
+          native = Boolean(doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement);
         }
       } catch (err) {
         console.warn('Native fullscreen request blocked:', err);
       }
 
-      try {
-        if (screen.orientation && screen.orientation.lock) {
-          await screen.orientation.lock('landscape').catch(() => {});
+      if (native && typeof screen !== 'undefined' && screen.orientation?.lock) {
+        try {
+          await screen.orientation.lock('landscape');
+        } catch (error) {
+          console.info('Orientation lock is not available; rotate the device manually.', error.message);
         }
-      } catch {}
-
-      // Pseudo-fullscreen fallback for iOS Safari
-      document.body.classList.add('fullscreen-mode');
-      if (typeof window !== 'undefined') {
-        window.scrollTo(0, 1);
+      }
+      document.body.classList.toggle('fullscreen-mode', !native);
+      if (!native) {
+        this.app?._pushToast('Expanded view', 'Native fullscreen is unavailable in this browser. You can still play here.', '↗');
       }
     } else {
       try {
@@ -2379,6 +2640,7 @@ class TouchController {
         console.warn('Native exit fullscreen failed:', err);
       }
       document.body.classList.remove('fullscreen-mode');
+      if (typeof screen !== 'undefined' && screen.orientation?.unlock) screen.orientation.unlock();
     }
 
     this._updateFullscreenUI();
@@ -2386,11 +2648,19 @@ class TouchController {
 
   _updateFullscreenUI() {
     if (typeof document === 'undefined') return;
+    const native = Boolean(document.fullscreenElement || document.webkitFullscreenElement ||
+      document.mozFullScreenElement || document.msFullscreenElement);
+    if (this.nativeFullscreen && !native) {
+      document.body.classList.remove('fullscreen-mode');
+      if (typeof screen !== 'undefined' && screen.orientation?.unlock) screen.orientation.unlock();
+    }
+    this.nativeFullscreen = native;
     const isFull = this.isFullscreen();
     const buttons = document.querySelectorAll('.fullscreen-toggle-btn, #btn-fullscreen');
     buttons.forEach((btn) => {
       btn.textContent = isFull ? '🗗 WINDOW' : '⛶ FULLSCREEN';
       btn.classList.toggle('active', isFull);
+      btn.setAttribute('aria-pressed', String(isFull));
     });
   }
 
@@ -2405,6 +2675,7 @@ class TouchController {
     // Show rotate overlay only on mobile/touch devices when in portrait orientation
     if (this.isMobile && isPortrait && !this.dismissedPortrait) {
       overlay.classList.remove('hidden');
+      if (this.app?.screen === 'match') this.app.togglePause(true);
     } else {
       overlay.classList.add('hidden');
       if (!isPortrait) {
@@ -2423,26 +2694,25 @@ class TouchController {
     const bindBtn = (id, onDown, onUp) => {
       const el = document.getElementById(id);
       if (!el) return;
+      const pointers = new Set();
+      this.pointerBindings.set(el, pointers);
 
       const handleDown = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        try {
-          if (el.setPointerCapture) el.setPointerCapture(e.pointerId);
-        } catch {}
+        if (pointers.has(e.pointerId)) return;
+        if (e.isTrusted && el.setPointerCapture) el.setPointerCapture(e.pointerId);
+        const wasHeld = pointers.size > 0;
+        pointers.add(e.pointerId);
         el.classList.add('active');
-        if (navigator.vibrate) {
-          try { navigator.vibrate(12); } catch {}
-        }
-        onDown();
+        if (!wasHeld) onDown();
       };
 
       const handleUp = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        try {
-          if (el.releasePointerCapture) el.releasePointerCapture(e.pointerId);
-        } catch {}
+        if (!pointers.delete(e.pointerId) || pointers.size) return;
+        if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId);
         el.classList.remove('active');
         onUp();
       };
@@ -2450,6 +2720,7 @@ class TouchController {
       el.addEventListener('pointerdown', handleDown, { passive: false });
       el.addEventListener('pointerup', handleUp, { passive: false });
       el.addEventListener('pointercancel', handleUp, { passive: false });
+      el.addEventListener('lostpointercapture', handleUp);
     };
 
     // Right Action Cluster
@@ -2499,9 +2770,7 @@ class TouchController {
       touchPause.addEventListener('pointerdown', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (this.app && typeof this.app._togglePause === 'function') {
-          this.app._togglePause();
-        }
+        this.app?.togglePause();
       });
     }
 
@@ -2514,8 +2783,10 @@ class TouchController {
         'pointerdown',
         (e) => {
           if (e.target.closest('.dpad-btn')) return; // Allow direct d-pad taps
+          if (this.stickPointerId !== null) return;
           e.preventDefault();
           this.stickPointerId = e.pointerId;
+          if (e.isTrusted && stickZone.setPointerCapture) stickZone.setPointerCapture(e.pointerId);
           const rect = stickZone.getBoundingClientRect();
           this.stickCenter = {
             x: rect.left + rect.width / 2,
@@ -2548,6 +2819,7 @@ class TouchController {
 
       stickZone.addEventListener('pointerup', releaseStick, { passive: false });
       stickZone.addEventListener('pointercancel', releaseStick, { passive: false });
+      stickZone.addEventListener('lostpointercapture', releaseStick);
     }
   }
 
@@ -2556,7 +2828,8 @@ class TouchController {
     const dx = clientX - this.stickCenter.x;
     const dy = clientY - this.stickCenter.y;
     const dist = Math.hypot(dx, dy);
-    const maxRadius = 55;
+    const zone = document.getElementById('touch-stick-zone');
+    const maxRadius = Math.max(24, (zone?.getBoundingClientRect().width || 150) * 0.34);
     const normDist = Math.min(1, dist / maxRadius);
     const normX = dist > 0 ? (dx / dist) * normDist : 0;
     const normY = dist > 0 ? (dy / dist) * normDist : 0;
@@ -2571,36 +2844,206 @@ class TouchController {
   }
 
   updateVisibility(currentScreen = this.app?.screen, touchSetting = this.app?.settings?.touchControls || 'auto') {
+    if (typeof document === 'undefined') return;
     const layer = document.getElementById('touch-controls');
     if (!layer) return;
 
     let shouldShow = false;
-    if (currentScreen === 'match') {
+    if (currentScreen === 'match' && !this.app?.paused && !this.app?._anyModalOpen?.()) {
       if (touchSetting === 'on') {
         shouldShow = true;
       } else if (touchSetting === 'off') {
         shouldShow = false;
       } else {
         // 'auto': Show if touch/mobile device
-        shouldShow = this.isTouch;
+        shouldShow = this.isTouch && this.input.activeSource === 'touch';
       }
     }
 
+    if (!shouldShow) this.resetPointers();
     layer.classList.toggle('hidden', !shouldShow);
     if (typeof document !== 'undefined') {
       document.body.classList.toggle('is-touch-device', shouldShow || this.isTouch || this.isMobile);
+      document.body.classList.toggle('touch-controls-visible', shouldShow);
+    }
+  }
+
+  resetPointers() {
+    const stickId = this.stickPointerId;
+    this.stickPointerId = null;
+    this.stickCenter = null;
+    this.input.clearTouch();
+    for (const [element, pointers] of this.pointerBindings) {
+      const captured = [...pointers];
+      pointers.clear();
+      element.classList.remove('active');
+      for (const id of captured) {
+        if (element.hasPointerCapture?.(id)) element.releasePointerCapture(id);
+      }
+    }
+    if (typeof document !== 'undefined') {
+      const zone = document.getElementById('touch-stick-zone');
+      if (stickId !== null && zone?.hasPointerCapture?.(stickId)) zone.releasePointerCapture(stickId);
+      const nub = document.getElementById('touch-stick-nub');
+      if (nub) nub.style.transform = 'translate(-50%, -50%)';
     }
   }
 }
 
 
+// === src/animation.js ===
+const ANIMATION_CLIPS = {
+  idle: { row: 0, count: 24, fps: 24 },
+  run: { row: 1, count: 24, fps: 24 },
+  jump: { row: 2, count: 16, fps: 24 },
+  kickside: { row: 3, count: 12, fps: 24 },
+  kickup: { row: 4, count: 12, fps: 24 },
+  ouch: { row: 5, count: 16, fps: 24 },
+};
+function advanceCharacterAnimation(player, dt) {
+  const speed = Math.abs(player.vx);
+  const state = player.stunTimer > 0 ? 'ouch'
+    : player.groundPoundState !== 'none' ? 'jump'
+    : player.kickTimer > 0 ? (player.kickType === 'up' ? 'kickup' : 'kickside')
+    : !player.onGround ? 'jump' : speed > 38 ? 'run' : 'idle';
+  if (state !== player.animState) {
+    player.animState = state;
+    player.animPhase = 0;
+  }
+  const cadence = state === 'run' ? Math.max(0.65, Math.min(1.8, speed / 360)) : 1;
+  player.animPhase = (player.animPhase || 0) + dt * cadence;
+  player.runPhase = (player.runPhase || 0) + (state === 'run' ? dt * cadence * Math.PI * 4 : 0);
+  player.strideBounce = state === 'run' ? -Math.abs(Math.sin(player.runPhase)) * 2.5 : 0;
+  const targetLean = state === 'run' ? Math.max(-0.09, Math.min(0.09, player.vx / 8000)) : 0;
+  player.animLean = (player.animLean || 0) + (targetLean - (player.animLean || 0)) * (1 - Math.exp(-14 * dt));
+}
+function characterFrame(player, time = 0) {
+  const phase = player.animPhase ?? time;
+  if (player.stunTimer > 0) return { col: Math.floor(phase * 24) % 16, row: 5 };
+  const pound = { stall: 7, plunge: 11, impact: 14 }[player.groundPoundState];
+  if (pound !== undefined) return { col: pound, row: 2 };
+  if (player.kickTimer > 0) {
+    const progress = Math.max(0, Math.min(1, 1 - player.kickTimer / (player.kickDuration || 0.21)));
+    return { col: Math.min(11, Math.floor(progress * 12)), row: player.kickType === 'up' ? 4 : 3 };
+  }
+  if (!player.onGround) {
+    const progress = Math.max(0, Math.min(1, ((player.vy || 0) + 1230) / 2460));
+    return { col: Math.min(13, 3 + Math.floor(progress * 11)), row: 2 };
+  }
+  const running = Math.abs(player.vx || 0) > 38;
+  return { col: Math.floor(phase * 24) % 24, row: running ? 1 : 0 };
+}
+function itemMotion(itemId, time) {
+  let seed = 0;
+  for (const char of itemId) seed += char.charCodeAt(0);
+  const phase = time * (2.4 + (seed % 5) * 0.28) + seed;
+  return {
+    rotation: Math.sin(phase) * (itemId === 'SuperStar' ? 0.16 : 0.055),
+    scaleX: 1 + Math.sin(phase * 0.8) * 0.025,
+    scaleY: 1 - Math.sin(phase * 0.8) * 0.025,
+    y: Math.sin(phase) * 1.5,
+  };
+}
+
+
+// === src/coach.js ===
+const MODE_BRIEFINGS = {
+  practice: ['Welcome to the pitch.', 'No opponent. No clock. Just you and the ball. I will walk you through five quick skills, one at a time.'],
+  '1v1_cpu': ['Your first rivalry.', 'Defend the left goal and attack the right. A jump and a well-timed strike will lift the ball onto the raised goal ledge. Start with Rookie if you are finding your feet.'],
+  '1v1_pvp': ['Settle it on the pitch.', 'Player 1 defends the left; Player 2 defends the right. Share a keyboard or use separate controllers. Take a moment to check both players can move.'],
+  '2v2': ['Better together.', 'Check the squad format before kickoff. Pass between teammates to build Voltage. One striker attacking and one covering the raised goal is a good starting shape.'],
+  cup: ['One round at a time.', 'Win to advance through the cup. Your rival and stadium are fixed for each round. In co-op, both human players defend the left goal together.'],
+  tourney: ['Every goal matters.', 'The bracket tells you who plays next. Controller players keep their player number; keyboard players use the side shown in the match briefing. Ties go to a decider.'],
+  trial: ['A challenge with a purpose.', 'Winning is only part of the task. Watch the objective tracker. Trial rules are fixed: no random items or extra party modifiers. Retry as often as you like.'],
+  target_blitz: ['Find your rhythm.', 'You have sixty seconds. Strike the floating targets to build a scoring chain. The right goal earns a bonus; your left goal is sealed.'],
+  keep_up: ['Keep your eyes on the ball.', 'The floor is safe for you, but not for the ball. Lob it high and move underneath it. An extra ball joins every twenty seconds.'],
+  goalie_gauntlet: ['Make the save.', 'Guard the left goal against the cannon. You have three lives. Strike the ball away, or time a dash just before contact for a perfect parry.'],
+};
+const ARENA_GUIDES = {
+  meadow: { label: 'The classic pitch', tip: 'Goals sit above the field. Jump, then strike across the raised ledge.', hazard: 'No environmental hazards' },
+  sky: { label: 'Own the air', tip: 'Jump up through the cloud decks; land on top. Descending balls bounce off them too.', hazard: 'One-way aerial platforms' },
+  castle: { label: 'Read the warning', tip: 'Glowing marked lanes warn before the lava erupts. Use the central platform to stay above it.', hazard: 'Telegraphed lava vents' },
+  manor: { label: 'Watch both portals', tip: 'A high ball entering a portrait reappears at the opposite portrait. Watch the exit, not just the shot.', hazard: 'Paired ball portals' },
+  jungle: { label: 'Catch the bounce', tip: 'The two golden drums launch players and balls. Keep a second jump ready for the follow-up.', hazard: 'Spring drums' },
+  glacier: { label: 'Brake a little earlier', tip: 'Ice carries your momentum. The warning lane marks where an icicle is about to fall.', hazard: 'Ice drift and falling icicles' },
+  cosmos: { label: 'Give yourself space', tip: 'Lower gravity extends every jump. The central hoop accelerates balls, so allow extra reaction time.', hazard: 'Low gravity and accelerator ring' },
+};
+function controlHints(input, slot = 0, source = input.activeSource) {
+  if (source === 'gamepad') return {
+    move: 'Left stick / D-pad', jump: 'A', kick: 'X', lob: 'Y / Up + X',
+    down: 'Stick down', dash: 'B / LB', item: 'RB / RT', pause: 'Start',
+  };
+  if (source === 'touch') return {
+    move: 'Drag stick / arrows', jump: 'JUMP', kick: 'STRIKE', lob: 'LOB',
+    down: 'Down arrow', dash: 'DASH', item: 'ITEM', pause: 'Pause',
+  };
+  const keys = input.controls[`p${slot + 1}`] || input.controls.p1;
+  const label = action => (keys[action] || []).slice(0, 2).map(formatKeyCode).join(' / ');
+  return {
+    move: `${label('left')} / ${label('right')}`, jump: label('up'), kick: label('kick'),
+    lob: label('lob'), down: label('down'), dash: label('dash'), item: label('item'), pause: 'Esc',
+  };
+}
+const PRACTICE_STEPS = [
+  { title: 'Find your feet', dialogue: 'Coach: Move across the grass. A little space makes the next touch much easier.', actions: ['move'] },
+  { title: 'Take to the air', dialogue: 'Coach: Good. Now jump. Tap again in the air for a second jump; release early for a shorter hop.', actions: ['jump'] },
+  { title: 'Make contact', dialogue: 'Coach: The ball is beside you. Tap and release Strike to kick it. Hold a little longer for a charged shot.', actions: ['kick', 'lob'] },
+  { title: 'Change the pace', dialogue: 'Coach: Nice touch. Dash to close a gap. Time it just before a fast enemy shot to parry.', actions: ['dash'] },
+  { title: 'Use your advantage', dialogue: 'Coach: I have put a Star in your item slot. Use it now. In a match, collect items from the floating courier.', actions: ['item'] },
+];
+class PracticeCoach {
+  constructor(match) {
+    this.match = match;
+    this.step = 0;
+    this.complete = false;
+    this.enterStep();
+  }
+
+  enterStep() {
+    const player = this.match.players[0];
+    this.startX = player.x;
+    this.baseline = { ...player.stats };
+    if (this.step === 2) {
+      const ball = this.match.balls[0];
+      Object.assign(player, { x: 700, y: this.match.arena.pitchFloorY - player.halfH, vx: 0, vy: 0, facing: 1 });
+      if (ball) Object.assign(ball, { x: 780, y: player.y - 12, vx: 0, vy: -80, freezeTimer: 0 });
+    } else if (this.step === 4) player.heldItem = 'SuperStar';
+  }
+
+  update() {
+    if (this.complete || this.match.phase !== 'playing') return false;
+    const player = this.match.players[0];
+    const passed = [
+      () => Math.abs(player.x - this.startX) >= 140,
+      () => player.stats.jumps > this.baseline.jumps,
+      () => player.stats.touches > this.baseline.touches,
+      () => player.stats.dashes > this.baseline.dashes,
+      () => player.stats.itemsUsed > this.baseline.itemsUsed,
+    ][this.step]();
+    if (!passed) return false;
+    this.step++;
+    this.complete = this.step === PRACTICE_STEPS.length;
+    if (!this.complete) this.enterStep();
+    return true;
+  }
+}
+function trialProgress(match) {
+  if (!match.trial) return '';
+  const player = match.players.find(player => player.team === 0 && !player.isClone);
+  if (!player) return '';
+  const trial = match.trial;
+  const score = `Goals ${match.scores[0]}/${trial.targetScore}`;
+  if (trial.specialRule === 'meteor_spikes') return `Meteor goals ${player.stats.meteorGoals}/${trial.targetScore}`;
+  if (trial.specialRule === 'wall_jumps') return `${score} · Wall jumps ${player.stats.wallJumps}/${trial.requiredWallJumps}`;
+  if (trial.specialRule === 'parry_shutout') return `${score} · Parries ${player.stats.parries}/${trial.requiredParries} · Conceded ${match.scores[1]}`;
+  if (trial.specialRule === 'no_lava') return `${score} · Lava touches ${player.stats.lavaTouches}${player.stats.lavaTouches ? ' — retry for the star' : ''}`;
+  return score;
+}
+
+
 // === src/art.js ===
-// Super Kick Kingdom 2.0 (Deluxe Edition) — Cutting-Edge 2.5D Sprite & Shader-Style Canvas Renderer
-// Features:
-// - 15 Transparent RGBA Cel-Shaded PNG Sprite Atlases (12 6-pose Strikers, Props, Balls & 18 Power-Ups)
-// - GPU-Accelerated Offscreen Alternate Kit Re-Coloring & Pose-Accurate Silhouette Afterimage Cache (100% file:// safe — zero getImageData!)
-// - Pre-Baked 2.5D Textured Biome Masonry, Perspective Turf Stripes, Swaying Grass, Planar Floor Reflections & 3D Brushed Goalposts
-// - Dynamic Additive Lighting & Bloom Pass, Multi-Layer Anime Crescent Slashes & HD Painted Hyper-Strike Portrait Cut-Ins
+// Canvas renderer with bounded frame caches, shared animation timing and readable hazard cues.
+
 
 const INK = '#151020';
 
@@ -2661,113 +3104,17 @@ const KIT_FILTER_SPECS = {
   'bowser_jr:1': { filter: 'hue-rotate(165deg) saturate(1.32) brightness(1.05)', glaze: '#38bdf8', glazeAlpha: 0.1 },
   'bowser_jr:2': { filter: 'hue-rotate(-32deg) saturate(0.62) brightness(1.20) contrast(1.08)', glaze: '#fef08a', glazeAlpha: 0.12 },
 };
-
-// Animation definitions across all 12 strikers — 24+ FPS ultra-fluid master playback!
-const CHAR_ANIM_METRICS = {
-  mario: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 24, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  luigi: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 24, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  peach: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 24, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  yoshi: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 26, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  wario: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 24, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  bowser: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 24, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  waluigi: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 25, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  rosalina: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 24, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  toad: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 26, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  donkey_kong: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 24, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  king_boo: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 24, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-  bowser_jr: {
-    idle: { row: 0, count: 24, fps: 24, loop: true },
-    run: { row: 1, count: 24, fps: 25, loop: true },
-    jump: { row: 2, count: 16, fps: 24, loop: false },
-    kickside: { row: 3, count: 12, fps: 24, loop: false },
-    kickup: { row: 4, count: 12, fps: 24, loop: false },
-    ouch: { row: 5, count: 16, fps: 24, loop: true },
-  },
-};
 class ArtRenderer {
   constructor() {
     this.images = {};
     this.sprites = {};
-    this._kitCache = {};
-    this._silhouetteCache = {};
+    this._frameCache = new Map();
+    this._charUse = new Map();
     this._terrainCache = {};
+    this.requested = new Set();
+    this.pendingAssets = 0;
+    this.failedAssets = [];
+    this.reducedMotion = false;
     this._loadImages();
   }
 
@@ -2785,29 +3132,43 @@ class ArtRenderer {
       'arena_cosmos',
     ];
     for (const k of bgKeys) {
-      const img = new Image();
-      img.decoding = 'async';
-      img.src = `./assets/images/${k}.jpg`;
-      img.onload = () => {
-        this.images[k] = img;
-      };
+      this._requestImage(k, `./assets/images/${k}.jpg`, this.images);
     }
 
     const spriteKeys = [
-      ...CHARACTERS.map((c) => `char_${c.id}`),
       ...CHARACTERS.map((c) => `portrait_${c.id}`),
       'props_atlas',
       'balls_atlas',
       'items_atlas',
     ];
     for (const sk of spriteKeys) {
-      const img = new Image();
-      img.decoding = 'async';
-      img.src = `./assets/sprites/${sk}.png`;
-      img.onload = () => {
-        this.sprites[sk] = img;
-      };
+      this._requestImage(sk, `./assets/sprites/${sk}.png`, this.sprites);
     }
+  }
+
+  _requestImage(key, url, target) {
+    if (typeof Image === 'undefined' || this.requested.has(key)) return;
+    this.requested.add(key);
+    this.pendingAssets++;
+    const image = new Image();
+    image.decoding = 'async';
+    const finish = () => {
+      this.pendingAssets--;
+      this.onAssetStatus?.(this.pendingAssets, [...this.failedAssets]);
+      if (this.pendingAssets === 0) this.onAssetsReady?.();
+    };
+    image.onload = () => {
+      if (!key.startsWith('char_') || this._charUse.has(key)) target[key] = image;
+      else this.requested.delete(key);
+      finish();
+    };
+    image.onerror = () => {
+      this.failedAssets.push(key);
+      console.error(`Game asset failed to load: ${url}`);
+      finish();
+    };
+    image.src = url;
+    this.onAssetStatus?.(this.pendingAssets, [...this.failedAssets]);
   }
 
   _makeOffscreen(w, h) {
@@ -2821,68 +3182,66 @@ class ArtRenderer {
     return null;
   }
 
-  // Lazily builds & caches alternate-jersey spritesheets on GPU without getImageData() (100% file:// safe!)
+  // Keep only the recently used character sheets; derived frames have a separate budget.
   _getCharSheet(ch) {
-    const base = this.sprites[`char_${ch.id}`];
-    if (!base) return null;
-    const kitIdx = ch.kitIdx || 0;
-    if (kitIdx === 0) return base;
-
-    const key = `${ch.id}:${kitIdx}`;
-    if (this._kitCache[key]) return this._kitCache[key];
-
-    const w = base.naturalWidth || base.width || 768;
-    const h = base.naturalHeight || base.height || 512;
-    const off = this._makeOffscreen(w, h);
-    if (!off) return base;
-
-    const spec = KIT_FILTER_SPECS[key] || {
-      filter: `hue-rotate(${kitIdx * 115}deg) saturate(1.18)`,
-      glaze: ch.primary,
-      glazeAlpha: 0.12,
-    };
-
-    const octx = off.ctx;
-    octx.save();
-    if ('filter' in octx) {
-      octx.filter = spec.filter;
+    const key = `char_${ch.id}`;
+    this._charUse.delete(key);
+    this._charUse.set(key, true);
+    if (this._charUse.size > 6) {
+      const oldest = this._charUse.keys().next().value;
+      this._charUse.delete(oldest);
+      if (this.sprites[oldest]) this.requested.delete(oldest);
+      delete this.sprites[oldest];
     }
-    octx.drawImage(base, 0, 0, w, h);
-    octx.filter = 'none';
-
-    if (spec.glaze && spec.glazeAlpha) {
-      octx.globalCompositeOperation = 'source-atop';
-      octx.globalAlpha = spec.glazeAlpha;
-      octx.fillStyle = spec.glaze;
-      octx.fillRect(0, 0, w, h);
+    const base = this.sprites[key];
+    if (!base) {
+      this._requestImage(key, `./assets/sprites/${key}.png`, this.sprites);
+      return null;
     }
-    octx.restore();
-
-    this._kitCache[key] = off.canvas;
-    return off.canvas;
+    return base;
   }
 
-  // Lazily builds & caches a solid-colored silhouette sheet for pose-accurate anime dash afterimages & rim glows!
-  _getSilhouetteSheet(charId, color) {
-    const base = this.sprites[`char_${charId}`];
-    if (!base) return null;
-    const key = `${charId}|${color}`;
-    if (this._silhouetteCache[key]) return this._silhouetteCache[key];
-
-    const w = base.naturalWidth || base.width || 768;
-    const h = base.naturalHeight || base.height || 512;
-    const off = this._makeOffscreen(w, h);
-    if (!off) return null;
-
-    const octx = off.ctx;
-    octx.drawImage(base, 0, 0, w, h);
-    octx.globalCompositeOperation = 'source-in';
-    octx.fillStyle = color;
-    octx.fillRect(0, 0, w, h);
-    octx.globalCompositeOperation = 'source-over';
-
-    this._silhouetteCache[key] = off.canvas;
-    return off.canvas;
+  _drawCharFrame(ctx, ch, col, row, x, y, width, height, color = null) {
+    const sheet = this._getCharSheet(ch);
+    if (!sheet) return;
+    const cellW = (sheet.naturalWidth || sheet.width) / 24;
+    const cellH = (sheet.naturalHeight || sheet.height) / 6;
+    const kit = ch.kitIdx || 0;
+    if (!kit && !color) {
+      ctx.drawImage(sheet, col * cellW, row * cellH, cellW, cellH, x, y, width, height);
+      return;
+    }
+    const key = `${ch.id}:${color || kit}:${row}:${col}`;
+    let frame = this._frameCache.get(key);
+    if (frame) {
+      this._frameCache.delete(key);
+      this._frameCache.set(key, frame);
+    } else {
+      const off = this._makeOffscreen(cellW, cellH);
+      if (!off) {
+        ctx.drawImage(sheet, col * cellW, row * cellH, cellW, cellH, x, y, width, height);
+        return;
+      }
+      const spec = KIT_FILTER_SPECS[`${ch.id}:${kit}`];
+      if (!color && spec && 'filter' in off.ctx) off.ctx.filter = spec.filter;
+      off.ctx.drawImage(sheet, col * cellW, row * cellH, cellW, cellH, 0, 0, cellW, cellH);
+      off.ctx.filter = 'none';
+      if (color || spec?.glaze) {
+        off.ctx.globalCompositeOperation = color ? 'source-in' : 'source-atop';
+        off.ctx.globalAlpha = color ? 1 : spec.glazeAlpha;
+        off.ctx.fillStyle = color || spec.glaze;
+        off.ctx.fillRect(0, 0, cellW, cellH);
+      }
+      frame = off.canvas;
+      this._frameCache.set(key, frame);
+      if (this._frameCache.size > 192) {
+        const [oldKey, oldFrame] = this._frameCache.entries().next().value;
+        this._frameCache.delete(oldKey);
+        oldFrame.width = 0;
+        oldFrame.height = 0;
+      }
+    }
+    ctx.drawImage(frame, x, y, width, height);
   }
 
   // --- Helper Drawing Primitives ---
@@ -2932,7 +3291,7 @@ class ArtRenderer {
       if (portrait) {
         ctx.drawImage(portrait, cx - size * 0.5, cy - size * 0.5, size, size);
       } else {
-        ctx.drawImage(sheet, 18, 6, 220, 195, cx - size * 0.52, cy - size * 0.48, size * 1.04, size * 0.96);
+        this._drawCharFrame(ctx, charObj, 0, 0, cx - size * 0.52, cy - size * 0.48, size * 1.04, size * 0.96);
       }
     } else {
       ctx.fillStyle = charObj.primary;
@@ -3038,6 +3397,11 @@ class ArtRenderer {
 
     this._renderStaticArenaArchitecture(off.ctx, arena);
     this._terrainCache[arena.id] = off.canvas;
+    if (Object.keys(this._terrainCache).length > 3) {
+      const oldest = Object.keys(this._terrainCache)[0];
+      this._terrainCache[oldest].width = 0;
+      delete this._terrainCache[oldest];
+    }
     return off.canvas;
   }
 
@@ -3431,9 +3795,7 @@ class ArtRenderer {
             ctx.translate(pl.x, pitchFloorY + 4 + dist * 0.22);
             ctx.scale(pl.facing * (pl.visualScale || 1) * pl.char.stats.size, -0.45 * (pl.visualScale || 1) * pl.char.stats.size);
             const { col, row } = this._selectCharFrameCoords(pl, time);
-            const sx = col * 256;
-            const sy = row * 256;
-            ctx.drawImage(sheet, sx, sy, 256, 256, -75, -142, 150, 150);
+            this._drawCharFrame(ctx, pl.char, col, row, -75, -142, 150, 150);
             ctx.restore();
           }
         }
@@ -3815,6 +4177,7 @@ class ArtRenderer {
     if (hazardsOn && matchState.icicles) {
       for (const ic of matchState.icicles) {
         if (!ic.active) continue;
+        if (ic.state === 'warn') this._drawHazardWarning(ctx, ic.x, arena.pitchFloorY, 48, ic.timer, 'ICE', arena.pitchFloorY - 30);
         ctx.save();
         const shakeX = ic.state === 'warn' ? Math.sin(time * 58) * 4.5 : 0;
         ctx.translate(ic.x + shakeX, ic.y);
@@ -3848,6 +4211,7 @@ class ArtRenderer {
     // 4. Magma Keep: Volcanic Lava Geyser Vents & Roaring Plasma Plumes
     if (hazardsOn && matchState.lavaVents) {
       for (const lv of matchState.lavaVents) {
+        if (lv.state === 'warn') this._drawHazardWarning(ctx, lv.x, arena.pitchFloorY, 82, lv.timer, 'LAVA', 250);
         ctx.save();
         ctx.translate(lv.x, arena.pitchFloorY - 4);
         if (lv.state === 'erupt') {
@@ -4014,6 +4378,25 @@ class ArtRenderer {
   // =========================================================================
   // 4. SKY-COURIER & ALL 18 CEL-SHADED POWER-UP SPRITES
   // =========================================================================
+  _drawHazardWarning(ctx, x, floor, width, remaining, label, height) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 201, 88, 0.13)';
+    ctx.fillRect(x - width / 2, floor - height, width, height);
+    ctx.strokeStyle = '#ffe3a0';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([12, 8]);
+    ctx.strokeRect(x - width / 2, floor - height, width, height);
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#111d2c';
+    this.roundRect(ctx, x - 65, floor - 60, 130, 32, 7);
+    ctx.fill();
+    ctx.fillStyle = '#ffe4a8';
+    ctx.textAlign = 'center';
+    ctx.font = '800 18px system-ui, sans-serif';
+    ctx.fillText(`${label} ${Math.max(0, remaining).toFixed(1)}s`, x, floor - 38);
+    ctx.restore();
+  }
+
   drawCloudCourier(ctx, courier, time) {
     if (!courier.active) return;
     const { x, y, heldItemId } = courier;
@@ -4049,7 +4432,7 @@ class ArtRenderer {
 
     // 2. Trailing Fishing Line & Item Bubble with Inertia Sway
     if (heldItemId) {
-      const inertiaSway = -vx * 0.09 + Math.sin(time * 4.2) * 8;
+      const inertiaSway = courier.bubbleX !== undefined ? courier.bubbleX - courier.x : -vx * 0.09 + Math.sin(time * 4.2) * 8;
       ctx.strokeStyle = INK;
       ctx.lineWidth = 4.5;
       ctx.beginPath();
@@ -4058,7 +4441,7 @@ class ArtRenderer {
       ctx.stroke();
 
       const bx = inertiaSway;
-      const by = 94;
+      const by = courier.bubbleY !== undefined ? courier.bubbleY - courier.y : 94;
       const pulse = 1 + Math.sin(time * 7) * 0.06;
       ctx.save();
       ctx.translate(bx, by);
@@ -4134,9 +4517,10 @@ class ArtRenderer {
       const sz = r * 2.32;
       ctx.save();
       ctx.translate(x, y);
-      if (itemId === 'SuperStar') {
-        ctx.rotate(Math.sin(time * 4.5) * 0.14);
-      }
+      const motion = itemMotion(itemId, this.reducedMotion ? 0 : time);
+      ctx.translate(0, motion.y);
+      ctx.rotate(motion.rotation);
+      ctx.scale(motion.scaleX, motion.scaleY);
       const cellW = (atlas.naturalWidth || atlas.width || 1536) / 6;
       const cellH = (atlas.naturalHeight || atlas.height || 768) / 3;
       ctx.drawImage(atlas, col * cellW, row * cellH, cellW, cellH, -sz / 2, -sz / 2, sz, sz);
@@ -4158,61 +4542,12 @@ class ArtRenderer {
   }
 
   // =========================================================================
-  // 5. ALL 12 STRIKERS — FLUID MULTI-FRAME ANIMATION (10x6 SPRITE ATLAS) + ANIME SECONDARY VFX
+  // 5. Character animation: 24-column, six-row atlases and continuous secondary motion.
   // =========================================================================
   _selectCharFrameCoords(player, time) {
-    const ch = player.char;
-    const cfg = CHAR_ANIM_METRICS[ch.id] || CHAR_ANIM_METRICS.mario;
-
-    if (player.stunTimer > 0) {
-      const anim = cfg.ouch;
-      const phase = player.animPhase !== undefined ? player.animPhase : time;
-      const fIdx = Math.floor(phase * anim.fps) % anim.count;
-      return { col: fIdx, row: anim.row };
-    }
-
-    if (player.groundPoundState === 'stall') {
-      const anim = cfg.jump;
-      return { col: 7, row: anim.row };
-    }
-    if (player.groundPoundState === 'plunge') {
-      const anim = cfg.jump;
-      return { col: 11, row: anim.row };
-    }
-    if (player.groundPoundState === 'impact') {
-      const anim = cfg.jump;
-      return { col: 14, row: anim.row };
-    }
-
-    if (player.kickTimer > 0) {
-      const isUp = player.kickType === 'up';
-      const anim = isUp ? cfg.kickup : cfg.kickside;
-      const dur = player.kickDuration || 0.22;
-      const prog = Math.min(1, Math.max(0, 1 - player.kickTimer / dur));
-      const fIdx = Math.min(anim.count - 1, Math.floor(prog * anim.count));
-      return { col: fIdx, row: anim.row };
-    }
-
-    if (!player.onGround) {
-      const anim = cfg.jump;
-      // Smooth continuous physics mapping across all 16 frames:
-      const vyNorm = Math.min(1, Math.max(0, (player.vy + 550) / 1100));
-      const fIdx = Math.min(anim.count - 1, Math.floor(vyNorm * anim.count));
-      return { col: fIdx, row: anim.row };
-    }
-
-    const speedX = Math.abs(player.vx || 0);
-    if (speedX > 38) {
-      const anim = cfg.run;
-      const phase = player.animPhase !== undefined ? player.animPhase : time;
-      const fIdx = Math.floor(phase * anim.fps) % anim.count;
-      return { col: fIdx, row: anim.row };
-    }
-
-    const anim = cfg.idle;
-    const phase = player.animPhase !== undefined ? player.animPhase : time;
-    const fIdx = Math.floor(phase * anim.fps) % anim.count;
-    return { col: fIdx, row: anim.row };
+    if (this.reducedMotion && player.onGround && Math.abs(player.vx || 0) <= 38 &&
+        !player.kickTimer && !player.stunTimer) return { col: 0, row: 0 };
+    return characterFrame(player, time);
   }
 
   _selectCharFrame(player, time) {
@@ -4227,8 +4562,6 @@ class ArtRenderer {
     const sheet = this._getCharSheet(ch);
     const metrics = CHAR_SPRITE_METRICS[ch.id] || CHAR_SPRITE_METRICS.mario;
     const { col, row } = this._selectCharFrameCoords(player, time);
-    const sx = col * 256;
-    const sy = row * 256;
 
     // 1. Soft Ground Contact Shadow
     if (player.shadowY !== undefined) {
@@ -4254,16 +4587,15 @@ class ArtRenderer {
 
     // 2. Pose-Accurate Chromatic Sprite Silhouette Dash Afterimages!
     if (player.dashGhosts && player.dashGhosts.length > 0) {
-      const sil = this._getSilhouetteSheet(ch.id, ch.aura || ch.primary);
       for (const g of player.dashGhosts) {
         ctx.save();
         ctx.globalAlpha = g.alpha * 0.58;
         ctx.translate(g.x, g.y);
         ctx.scale(facing * scale, scale);
-        if (sil) {
+        if (sheet) {
           const dSz = metrics.drawSize;
           const topY = 53 - dSz * metrics.footY;
-          ctx.drawImage(sil, sx, sy, 256, 256, -dSz * 0.5, topY, dSz, dSz);
+          this._drawCharFrame(ctx, ch, col, row, -dSz * 0.5, topY, dSz, dSz, ch.aura || ch.primary);
         } else {
           ctx.fillStyle = ch.aura;
           ctx.beginPath();
@@ -4368,7 +4700,7 @@ class ArtRenderer {
     const isKicking = player.kickTimer > 0;
     const isStunned = player.stunTimer > 0;
     const strideY = player.strideBounce || 0;
-    const sprintLean = isRunning ? facing * 0.065 : 0;
+    const sprintLean = player.animLean || (isRunning ? facing * 0.045 : 0);
 
     const floatBobY =
       ch.id === 'king_boo'
@@ -4377,36 +4709,39 @@ class ArtRenderer {
 
     let poseRot = (player.spinAngle || 0) + sprintLean;
     if (isKicking) {
-      if (player.kickType === 'up') poseRot += facing * -0.32;
-      else if (player.kickType === 'spike') poseRot += facing * 0.32;
-      else poseRot += facing * 0.04;
+      const stroke = Math.sin(Math.PI * Math.min(1, 1 - player.kickTimer / (player.kickDuration || 0.21)));
+      if (player.kickType === 'up') poseRot += facing * -0.32 * stroke;
+      else if (player.kickType === 'spike') poseRot += facing * 0.32 * stroke;
+      else poseRot += facing * 0.06 * stroke;
     }
 
     ctx.save();
     ctx.translate(0, floatBobY + strideY);
+    const footPivot = player.onGround && !player.spinAngle ? 52 : 0;
+    ctx.translate(0, footPivot * scale);
     ctx.rotate(poseRot);
 
     ctx.scale(facing * (player.squashX || 1) * scale, (player.squashY || 1) * scale);
+    ctx.translate(0, -footPivot);
 
     if (sheet) {
       const dSz = metrics.drawSize;
       const airOffset = row === 2 || row === 5 ? metrics.airShiftY : 0;
-      const topY = 53 - dSz * metrics.footY + airOffset;
+      const topY = 52 - dSz * metrics.footY + airOffset;
 
       // Glowing Rim-Flash Underlay when Hyper-Ready, Parrying, or Holo-Clone!
       if (player.hyperReady || player.parryFlashTimer > 0 || player.isClone) {
         const rimCol = player.isClone ? '#38bdf8' : '#fde047';
-        const rimSil = this._getSilhouetteSheet(ch.id, rimCol);
-        if (rimSil) {
+        if (sheet) {
           ctx.save();
           ctx.globalAlpha = player.parryFlashTimer > 0 ? 0.9 : 0.65;
-          ctx.drawImage(rimSil, sx, sy, 256, 256, -dSz * 0.5 - 3.5, topY - 3.5, dSz + 7, dSz + 7);
+          this._drawCharFrame(ctx, ch, col, row, -dSz * 0.5 - 3.5, topY - 3.5, dSz + 7, dSz + 7, rimCol);
           ctx.restore();
         }
       }
 
       // Draw Crisp HD Cel-Shaded Character Sprite!
-      ctx.drawImage(sheet, sx, sy, 256, 256, -dSz * 0.5, topY, dSz, dSz);
+      this._drawCharFrame(ctx, ch, col, row, -dSz * 0.5, topY, dSz, dSz);
 
       // Big Head Mutator: Hilarious 1.68x Bobble-Head Magnifier Pass!
       if (player.bigHead) {
@@ -4418,7 +4753,7 @@ class ArtRenderer {
         ctx.beginPath();
         ctx.rect(-dSz * 0.55, -dSz * 0.48, dSz * 1.1, dSz * 0.50);
         ctx.clip();
-        ctx.drawImage(sheet, sx, sy, 256, 256, -dSz * 0.5, -dSz * 0.44, dSz, dSz);
+        this._drawCharFrame(ctx, ch, col, row, -dSz * 0.5, -dSz * 0.44, dSz, dSz);
         ctx.restore();
       }
 
@@ -4501,7 +4836,7 @@ class ArtRenderer {
     // Sleek Floating Player Indicator Pill above Head
     ctx.save();
     const extraHeadH = player.bigHead ? 28 * scale : 0;
-    const tagY = player.y - 78 * scale - extraHeadH - Math.sin(time * 5) * 3;
+    const tagY = player.y + (52 - metrics.drawSize * metrics.footY) * scale - 18 - extraHeadH;
     ctx.fillStyle = 'rgba(12, 18, 36, 0.84)';
     ctx.strokeStyle = player.hyperReady ? '#fde047' : ch.primary;
     ctx.lineWidth = player.hyperReady ? 3.8 : 2.8;
@@ -4744,6 +5079,8 @@ class ArtRenderer {
     const props = this.sprites.props_atlas;
     ctx.save();
     ctx.translate(keeper.x, keeper.y + bob);
+    const recoil = Math.sin(Math.max(0, keeper.recoilTimer || 0) / 0.22 * Math.PI) * 0.12;
+    ctx.scale(1 + recoil, 1 - recoil);
 
     if (props) {
       ctx.save();
@@ -4817,15 +5154,16 @@ class ArtRenderer {
   drawBananaEntity(ctx, banana, time) {
     ctx.save();
     ctx.translate(banana.x, banana.y);
+    if (Math.abs(banana.vx || 0) > 20 || Math.abs(banana.vy || 0) > 20) ctx.rotate(time * 6 * Math.sign(banana.vx || 1));
     this.drawItemIcon(ctx, 'BananaBunch', 0, 0, 26, time);
     ctx.restore();
   }
 
   drawShellEntity(ctx, shell, time) {
-    if (shell.timer < 1.8 && Math.floor(time * 16) % 2 === 0) return;
+    if (!this.reducedMotion && shell.timer < 1.8 && Math.floor(time * 16) % 2 === 0) return;
     ctx.save();
     ctx.translate(shell.x, shell.y);
-    const squish = 1 + Math.sin(time * 30) * 0.09;
+    const squish = 1 + Math.sin(time * 12) * 0.06;
     ctx.scale(squish, 2 - squish);
     this.drawItemIcon(ctx, 'GreenShell', 0, 0, shell.radius * 1.08, time);
     ctx.restore();
@@ -4991,7 +5329,7 @@ class ArtRenderer {
     const ch = cutIn.char;
     const sheet = this._getCharSheet(ch);
     const alpha = Math.min(1, cutIn.timer * 4.5);
-    const slideIn = Math.max(0, (0.75 - Math.min(0.75, cutIn.timer)) * 0);
+    const slideIn = this.reducedMotion ? 0 : -Math.pow(Math.max(0, (cutIn.timer - 0.36) / 0.16), 3) * 360;
 
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -5032,11 +5370,8 @@ class ArtRenderer {
 
     // HD Painted Character Action Portrait Bust on Left of Banner!
     if (sheet) {
-      const goldSil = this._getSilhouetteSheet(ch.id, '#fde047');
-      if (goldSil) {
-        ctx.drawImage(goldSil, 256, 256, 256, 256, -688, -142, 310, 310);
-      }
-      ctx.drawImage(sheet, 256, 256, 256, 256, -678, -136, 300, 300);
+      this._drawCharFrame(ctx, ch, 1, 1, -688, -142, 310, 310, '#fde047');
+      this._drawCharFrame(ctx, ch, 1, 1, -678, -136, 300, 300);
     }
 
     ctx.restore(); // end ribbon clip
@@ -5316,8 +5651,9 @@ class AIController {
       Math.random() < diff.aggression
     ) {
       mem.targetX = courier.x;
-      const bubbleY = courier.y + 92;
-      if (Math.abs(courier.x - player.x) < 120 && player.y > bubbleY + 30) {
+      const bubbleY = courier.bubbleY ?? courier.y + 94;
+      mem.targetX = courier.bubbleX ?? courier.x;
+      if (Math.abs(mem.targetX - player.x) < 120 && player.y > bubbleY + 30) {
         if (player.onGround || (player.jumpsLeft > 0 && player.vy > -180)) {
           mem.wantJump = true;
         }
@@ -5391,8 +5727,7 @@ class AIController {
 
 
 // === src/physics.js ===
-// Super Kick Kingdom 2.0 (Deluxe Edition) — Sub-Stepped Kung-Foot Physics, Combat & Hazard Engine
-// 12 Strikers, Hyper-Strikes, Perfect Parry, Magnus Spin, 2v2 Combo Voltage, 7 Hazard Arenas, 18 Items, 7 Mutators & 3 Minigames
+// Sub-stepped arcade physics, combat, stage hazards and challenge rules.
 class MatchSimulation {
   constructor({
     mode,
@@ -5413,17 +5748,22 @@ class MatchSimulation {
     this.immediateEnd = immediateEnd;
     this.arena = getArena(arenaId);
     this.settings = { ...settings };
-    if (trial?.mutators) {
-      this.settings.activeMutators = Array.from(new Set([...(this.settings.activeMutators || []), ...trial.mutators]));
-    }
-    if (trial?.targetScore) {
+    if (trial) {
+      this.settings.activeMutators = [...(trial.mutators || [])];
+      this.settings.itemMode = 'off';
+      this.settings.matchDuration = 180;
+      this.settings.ballPreset = 'balanced';
+      this.settings.stageHazards = true;
       this.settings.scoreLimit = trial.targetScore;
+    }
+    if (mode === 'practice') {
+      Object.assign(this.settings, { matchDuration: 0, scoreLimit: 0, itemMode: 'off', stageHazards: false, activeMutators: [] });
     }
     this.audio = audio;
     this.onGoal = onGoal;
     this.onMatchEnd = onMatchEnd;
 
-    this.ballPreset = BALL_PRESETS[settings.ballPreset] || BALL_PRESETS.balanced;
+    this.ballPreset = BALL_PRESETS[this.settings.ballPreset] || BALL_PRESETS.balanced;
 
     this.time = 0;
     this.phase = isAttract ? 'playing' : 'countdown';
@@ -5431,9 +5771,9 @@ class MatchSimulation {
     this.lastCountdownBeep = 4;
 
     this.isMinigame = ['target_blitz', 'keep_up', 'goalie_gauntlet'].includes(mode);
-    this.timeRemaining = mode === 'target_blitz' ? 60 : settings.matchDuration;
+    this.timeRemaining = mode === 'target_blitz' ? 60 : this.settings.matchDuration;
     this.unlimitedTime =
-      mode === 'keep_up' || mode === 'goalie_gauntlet' || (!this.isMinigame && settings.matchDuration === 0);
+      mode === 'keep_up' || mode === 'goalie_gauntlet' || (!this.isMinigame && this.settings.matchDuration === 0);
     this.suddenDeath = false;
 
     this.scores = [0, mode === 'goalie_gauntlet' ? 3 : 0];
@@ -5491,11 +5831,11 @@ class MatchSimulation {
     }
 
     this.courier = {
-      active: settings.itemMode !== 'off' && !this.isMinigame,
+      active: this.settings.itemMode !== 'off' && !this.isMinigame,
       x: VIRTUAL_WIDTH / 2,
       y: 305,
       heldItemId: null,
-      spawnTimer: settings.itemMode === 'frantic' ? 3.0 : 5.5,
+      spawnTimer: this.settings.itemMode === 'frantic' ? 3.0 : 5.5,
     };
 
     this.shells = [];
@@ -5506,6 +5846,9 @@ class MatchSimulation {
     this.targets = [];
     this.particles = [];
     this.shockwaves = [];
+    this.cloneIdCounter = 20;
+    this.disposed = false;
+    this.endTimer = null;
 
     this._initStageHazards();
 
@@ -5578,11 +5921,16 @@ class MatchSimulation {
     } else if (this.mode === 'keep_up' && isLeft) {
       startX = VIRTUAL_WIDTH / 2;
     }
+    if (this.trial?.specialRule === 'no_lava' && isLeft) {
+      startX = this.arena.platforms[0].x;
+      startY = this.arena.platforms[0].y - 52 * ch.stats.size * (cfg.bossScale || 1);
+    }
 
     const bossScale = cfg.bossScale || 1.0;
 
     return {
       slot: cfg.slot ?? idx,
+      controlSlot: cfg.controlSlot ?? cfg.slot ?? idx,
       team: cfg.team,
       tag: cfg.tag || (cfg.isAI ? 'CPU' : `P${idx + 1}`),
       isAI: Boolean(cfg.isAI),
@@ -5678,6 +6026,12 @@ class MatchSimulation {
         kos: 0,
         meteorSpikes: 0,
         wallJumps: 0,
+        meteorGoals: 0,
+        lavaTouches: 0,
+        jumps: 0,
+        touches: 0,
+        dashes: 0,
+        ownGoals: 0,
       },
     };
   }
@@ -5702,6 +6056,7 @@ class MatchSimulation {
       lastKicker: null,
       lastKickTime: -10,
       lastTeam: -1,
+      lastWasMeteorSpike: false,
       auraColor: null,
       freezeTimer: 0,
       burnTimer: 0,
@@ -5746,7 +6101,7 @@ class MatchSimulation {
   }
 
   addShake(mag) {
-    if (this.isAttract) return;
+    if (this.isAttract || this.settings.reducedMotion) return;
     this.shakeMag = Math.min(36, Math.max(this.shakeMag, mag * this.settings.screenShake));
   }
 
@@ -5756,6 +6111,8 @@ class MatchSimulation {
   }
 
   spawnBurst(x, y, color, count = 12, speed = 360, size = 7, shape = 'circle') {
+    count = Math.min(count, Math.max(0, 360 - this.particles.length));
+    if (this.settings.reducedMotion) count = Math.ceil(count * 0.35);
     for (let i = 0; i < count; i++) {
       const ang = Math.random() * Math.PI * 2;
       const spd = speed * (0.35 + Math.random() * 0.85);
@@ -5778,7 +6135,7 @@ class MatchSimulation {
   }
 
   spawnFloatingText(x, y, text, color = '#fde047', size = 30) {
-    if (this.isAttract) return;
+    if (this.isAttract || this.particles.length >= 380) return;
     this.particles.push({
       x,
       y,
@@ -5795,6 +6152,7 @@ class MatchSimulation {
   }
 
   spawnShockwave(x, y, color = '#ffffff', maxRadius = 150, lineWidth = 8) {
+    if (this.shockwaves.length >= 24) return;
     this.shockwaves.push({
       x,
       y,
@@ -5808,6 +6166,7 @@ class MatchSimulation {
 
   // --- Main Frame Update ---
   update(rawDt, playerInputs) {
+    if (this.disposed) return;
     const dt = Math.min(0.05, rawDt);
     this.time += dt;
 
@@ -5899,7 +6258,7 @@ class MatchSimulation {
 
     if (this.phase === 'goal_celebration') {
       this.phaseTimer -= dt;
-      this._stepWorld(simDt, playerInputs, false);
+      this._stepWorld(simDt, this.players.map(() => ({})), false);
       this._updateParticles(dt);
       if (this.phaseTimer <= 0) {
         this.slowMoFactor = 1.0;
@@ -5963,7 +6322,8 @@ class MatchSimulation {
       return;
     }
 
-    if (this.scores[0] === this.scores[1] && !this.suddenDeath) {
+    if (this.scores[0] === this.scores[1]) {
+      if (this.suddenDeath) this.settings.suddenDeathMode = 'golden';
       this.suddenDeath = true;
       this.phase = 'sudden_death_intro';
       this.phaseTimer = 2.0;
@@ -5987,15 +6347,23 @@ class MatchSimulation {
     this.phase = 'ended';
     this.audio?.playWhistle('end');
     this.triggerBanner(customBanner, '', '#fde047', 2.0);
-    if (this.onMatchEnd) {
+    const summary = this.getSummary();
+    if (this.onMatchEnd && !this.disposed) {
       if (this.immediateEnd) {
-        this.onMatchEnd(this.getSummary());
+        this.onMatchEnd(summary);
       } else {
-        setTimeout(() => {
-          this.onMatchEnd(this.getSummary());
+        this.endTimer = setTimeout(() => {
+          this.endTimer = null;
+          if (!this.disposed) this.onMatchEnd(summary);
         }, 1350);
       }
     }
+  }
+
+  dispose() {
+    this.disposed = true;
+    if (this.endTimer !== null) clearTimeout(this.endTimer);
+    this.endTimer = null;
   }
 
   _resetPositionsForKickoff() {
@@ -6025,6 +6393,22 @@ class MatchSimulation {
       p.chargeTime = 0;
       p.kickTimer = 0;
       p.spinAngle = 0;
+      p.spinVel = 0;
+      p.groundPoundState = 'none';
+      p.groundPoundTimer = 0;
+      p.dashTimer = 0;
+      p.dashGhosts = [];
+      p.touchingWallDir = 0;
+      p.jumpsLeft = 1;
+      p.jumpBufferTimer = 0;
+      p.onGround = true;
+      p.coyoteTimer = 0.1;
+      p.animState = 'idle';
+      p.animPhase = 0;
+      if (this.trial?.specialRule === 'no_lava' && p.team === 0) {
+        p.x = this.arena.platforms[0].x;
+        p.y = this.arena.platforms[0].y - p.halfH;
+      }
     }
     this.triggerBanner('PLAY ON!', '', '#38bdf8', 0.75);
     this.audio?.playWhistle('start');
@@ -6032,6 +6416,7 @@ class MatchSimulation {
 
   // --- Sub-Stepped World Physics ---
   _stepWorld(dt, playerInputs, allowScoring) {
+    const inputsByPlayer = new Map(this.players.map((player, index) => [player, playerInputs[index] || {}]));
     if (this.powLeftTimer > 0) this.powLeftTimer = Math.max(0, this.powLeftTimer - dt);
     if (this.powRightTimer > 0) this.powRightTimer = Math.max(0, this.powRightTimer - dt);
 
@@ -6074,8 +6459,10 @@ class MatchSimulation {
     for (let i = 0; i < this.players.length; i++) {
       const p = this.players[i];
       p.hyperReady = this.settings.hyperStrikes !== false && this.hype[p.team] >= 100;
-      const inp = playerInputs[i] || {};
+      const inp = inputsByPlayer.get(p) || {};
       this._updatePlayer(p, inp, dt);
+      advanceCharacterAnimation(p, dt);
+      if (this.phase === 'ended') return;
     }
 
     // Player-vs-Player body separation + SuperStar Rainbow Tackle!
@@ -6107,7 +6494,7 @@ class MatchSimulation {
       }
     }
 
-    // Sub-step balls (4 substeps = zero tunneling!)
+    // Ball substeps keep fast shots from skipping thin collision surfaces.
     const subSteps = 4;
     const subDt = dt / subSteps;
     for (let step = 0; step < subSteps; step++) {
@@ -6324,7 +6711,8 @@ class MatchSimulation {
       // 2. Stomp Stun on Opponents during plunge:
       if (p.groundPoundState === 'plunge') {
         for (const foe of this.players) {
-          if (foe !== p && foe.team !== p.team && foe.starTimer <= 0) {
+          if (foe !== p && foe.team !== p.team && foe.starTimer <= 0 && foe.invulnTimer <= 0 &&
+              !(foe.char.stats.phaseDash && foe.dashTimer > 0)) {
             const dx = Math.abs(foe.x - p.x);
             const dy = foe.y - p.y;
             if (dx < (p.halfW + foe.halfW + 16) && dy > 0 && dy < (p.halfH + foe.halfH + 26)) {
@@ -6373,6 +6761,7 @@ class MatchSimulation {
 
     // Dash Burst (also opens Perfect Parry window!)
     if (inp.dashPressed && p.dashCooldown <= 0 && p.dashTimer <= 0) {
+      p.stats.dashes++;
       p.dashDir = inp.left ? -1 : inp.right ? 1 : p.facing;
       p.facing = p.dashDir;
       p.dashTimer = p.char.stats.shellSlide ? 0.23 : 0.14;
@@ -6382,10 +6771,6 @@ class MatchSimulation {
       p.squashY = 0.76;
       this.audio?.playDash();
       this.spawnBurst(p.x, p.y + p.halfH * 0.5, '#ffffff', 7, 220, 6);
-    }
-
-    if (p.parryWindowTimer > 0) {
-      this._checkParryDeflect(p);
     }
 
     const friction = p.onGround ? this.arena.groundFriction ?? 1.0 : 1.0;
@@ -6460,6 +6845,9 @@ class MatchSimulation {
       p.wallJumpCooldown = 0.24;
       p.jumpsLeft = 1; // Wall-jump gives striker a fresh mid-air jump/volley option!
       p.stats.wallJumps = (p.stats.wallJumps || 0) + 1;
+      p.stats.jumps++;
+      p.jumpBufferTimer = 0;
+      p.coyoteTimer = 0;
       p.squashX = 0.74;
       p.squashY = 1.3;
       this.audio?.playJump(p.char, true);
@@ -6472,6 +6860,7 @@ class MatchSimulation {
       p.jumpBufferTimer = 0;
       p.squashX = 0.78;
       p.squashY = 1.26;
+      p.stats.jumps++;
       this.audio?.playJump(p.char, false);
       this.spawnBurst(p.x, p.y + p.halfH, '#ffffff', 6, 180, 5);
     } else if (inp.jumpPressed && p.jumpsLeft > 0 && !p.onGround) {
@@ -6483,6 +6872,7 @@ class MatchSimulation {
       p.spinVel = 15.5;
       p.squashX = 0.82;
       p.squashY = 1.22;
+      p.stats.jumps++;
       this.audio?.playJump(p.char, true);
       this.spawnBurst(p.x, p.y + p.halfH * 0.6, p.char.aura, 9, 240, 6);
     }
@@ -6493,7 +6883,7 @@ class MatchSimulation {
 
     // Princess Pippa's Royal Hover!
     p.isHovering = false;
-    if (!p.onGround && p.jumpsLeft === 0 && p.hoverFuel > 0 && inp.up && p.vy > 60) {
+    if (!p.onGround && p.jumpsLeft === 0 && p.hoverFuel > 0 && (inp.jumpHeld || inp.up) && p.vy > 60) {
       p.hoverFuel -= dt;
       p.vy = Math.min(p.vy, 125);
       p.isHovering = true;
@@ -6545,44 +6935,23 @@ class MatchSimulation {
       }
     }
 
+    if (p.parryWindowTimer > 0) this._checkParryDeflect(p);
     if (p.kickTimer > 0) {
       p.kickTimer -= dt;
       this._checkActiveKickHits(p);
     }
 
     this._moveAndCollidePlayer(p, dt, inp.down);
-
-    // Smooth Animation Phase Integration & Kinetic Gait
-    const speedX = Math.abs(p.vx || 0);
-    if (p.stunTimer > 0) {
-      p.animState = 'ouch';
-      p.animPhase = (p.animPhase || 0) + dt;
-      p.strideBounce = 0;
-    } else if (p.groundPoundState && p.groundPoundState !== 'none') {
-      p.animState = 'jump';
-      p.strideBounce = 0;
-    } else if (p.kickTimer > 0) {
-      p.animState = p.kickType === 'up' ? 'kickup' : 'kickside';
-      p.strideBounce = 0;
-    } else if (!p.onGround) {
-      p.animState = 'jump';
-      p.strideBounce = 0;
-    } else if (speedX > 38) {
-      p.animState = 'run';
-      const speedRatio = Math.max(0.65, Math.min(1.4, speedX / 300));
-      p.animPhase = (p.animPhase || 0) + dt * speedRatio;
-      p.runPhase = (p.runPhase || 0) + dt * speedRatio * 18;
-      p.strideBounce = Math.sin(p.runPhase) * 2.5;
-    } else {
-      p.animState = 'idle';
-      p.animPhase = (p.animPhase || 0) + dt;
-      p.strideBounce = 0;
+    p.footstepTimer = Math.max(0, (p.footstepTimer || 0) - dt);
+    if (p.onGround && Math.abs(p.vx) > 160 && p.footstepTimer === 0) {
+      p.footstepTimer = Math.max(0.13, 0.3 - Math.abs(p.vx) / 5000);
+      this.audio?.playFootstep?.(this.arena.id, p.char.stats.weight);
     }
 
     // Sky-Cloud Courier Item Pickup!
-    if (!p.isClone && this.courier.active && this.courier.heldItemId) {
-      const bx = this.courier.x;
-      const by = this.courier.y + 92;
+    if (!p.isClone && !p.heldItem && this.courier.active && this.courier.heldItemId) {
+      const bx = this.courier.bubbleX ?? this.courier.x;
+      const by = this.courier.bubbleY ?? this.courier.y + 94;
       if (Math.hypot(p.x - bx, p.y - by) < p.halfH + 42) {
         p.heldItem = this.courier.heldItemId;
         this.courier.heldItemId = null;
@@ -6620,6 +6989,8 @@ class MatchSimulation {
         b.lastKicker = p;
         b.lastTeam = p.team;
         b.lastKickTime = this.time;
+        b.lastWasMeteorSpike = false;
+        p.stats.touches++;
         b.auraColor = '#fde047';
         b.freezeTimer = 0;
         p.hitBallsThisSwing.add(b.id);
@@ -6727,6 +7098,8 @@ class MatchSimulation {
   }
 
   _applyKickToBall(p, b) {
+    b.lastWasMeteorSpike = false;
+    p.stats.touches++;
     // Simultaneous Ball CLASH!
     if (this.time - b.lastKickTime < 0.085 && b.lastTeam !== -1 && b.lastTeam !== p.team && !p.isHyperSwing) {
       b.vx = (Math.random() - 0.5) * 260;
@@ -6953,9 +7326,11 @@ class MatchSimulation {
     p.onGround = false;
 
     // 1. Sunken Pitch Risers (Junior's Shell-Slide bounces off riser walls!)
+    p.touchingWallDir = 0;
     if (p.y + p.halfH > ar.goalFloorY + 14) {
       if (p.x - p.halfW < ar.pitchLeftX) {
         p.x = ar.pitchLeftX + p.halfW;
+        p.touchingWallDir = 1;
         if (p.char.stats.shellSlide && p.dashTimer > 0) {
           p.dashDir = 1;
           p.facing = 1;
@@ -6966,6 +7341,7 @@ class MatchSimulation {
       }
       if (p.x + p.halfW > ar.pitchRightX) {
         p.x = ar.pitchRightX - p.halfW;
+        p.touchingWallDir = -1;
         if (p.char.stats.shellSlide && p.dashTimer > 0) {
           p.dashDir = -1;
           p.facing = -1;
@@ -6976,7 +7352,6 @@ class MatchSimulation {
       }
     }
 
-    p.touchingWallDir = 0;
     const upperLeftWallX = ar.goalLineLeftX + 52;
     const upperRightWallX = ar.goalLineRightX - 52;
     if (p.y - p.halfH < ar.goalCeilingY - 8) {
@@ -7060,13 +7435,15 @@ class MatchSimulation {
             b.lastKicker = p;
             b.lastTeam = p.team;
             b.lastKickTime = this.time;
+            b.lastWasMeteorSpike = false;
             this.spawnBurst(b.x, b.y, '#fde047', 10, 240, 6);
           }
         }
 
         // Shockwave Stumbles Nearby Opponents
         for (const foe of this.players) {
-          if (foe !== p && foe.team !== p.team && foe.starTimer <= 0 && foe.onGround) {
+          if (foe !== p && foe.team !== p.team && foe.starTimer <= 0 && foe.invulnTimer <= 0 && foe.onGround &&
+              !(foe.char.stats.phaseDash && foe.dashTimer > 0)) {
             if (Math.abs(foe.x - p.x) < 190) {
               foe.vy = -450;
               foe.vx += Math.sign(foe.x - p.x || p.facing) * 420;
@@ -7079,6 +7456,7 @@ class MatchSimulation {
       } else if (prevVy > 450) {
         p.squashX = 1.18;
         p.squashY = 0.84;
+        this.audio?.playLanding?.(this.arena.id, p.char.stats.weight);
       }
 
       // Kongor's Seismic Fast-Fall Slam!
@@ -7113,6 +7491,7 @@ class MatchSimulation {
         p.onGround = false;
         p.jumpsLeft = 1;
         p.lavaTickTimer = 0.35;
+        p.stats.lavaTouches++;
         this.audio?.playItemUse('FireFlower');
         this.spawnBurst(p.x, floorY, '#f97316', 10, 280, 6);
         this.spawnFloatingText(p.x, p.y - 40, 'HOT TURF!', '#fb923c', 22);
@@ -7164,6 +7543,8 @@ class MatchSimulation {
       b.vy = (b.vy / spd) * 2350;
     }
 
+    const previousX = b.x;
+    const previousBottom = b.y + b.radius;
     b.x += b.vx * dt;
     b.y += b.vy * dt;
     b.angle += b.angVel * dt;
@@ -7171,6 +7552,29 @@ class MatchSimulation {
     const r = b.radius;
     const upperLeftX = ar.goalLineLeftX + 52;
     const upperRightX = ar.goalLineRightX - 52;
+
+    // Resolve the vertical risers before choosing the elevated goal floor.
+    if (previousBottom > ar.goalFloorY + 6 && b.y > ar.goalFloorY) {
+      if (previousX >= ar.pitchLeftX && b.x - r < ar.pitchLeftX) {
+        b.x = ar.pitchLeftX + r;
+        b.vx = Math.abs(b.vx) * bounce;
+      } else if (previousX <= ar.pitchRightX && b.x + r > ar.pitchRightX) {
+        b.x = ar.pitchRightX - r;
+        b.vx = -Math.abs(b.vx) * bounce;
+      }
+    }
+
+    for (const platform of ar.platforms) {
+      if (b.vy > 0 && previousBottom <= platform.y + 1 && b.y + r >= platform.y &&
+          b.x + r * 0.7 > platform.x - platform.w / 2 &&
+          b.x - r * 0.7 < platform.x + platform.w / 2) {
+        b.y = platform.y - r;
+        b.vy = -b.vy * bounce;
+        b.squashX = 1.15;
+        b.squashY = 0.87;
+        this.audio?.playBallBounce(Math.abs(b.vy));
+      }
+    }
 
     // 1. Top Ceiling (y = 18)
     if (b.y - r < 18) {
@@ -7184,6 +7588,7 @@ class MatchSimulation {
           if (idleIc) {
             idleIc.state = 'warn';
             idleIc.timer = 0.45;
+            this.audio?.playHazardWarning?.('ice');
           }
         }
       }
@@ -7328,6 +7733,8 @@ class MatchSimulation {
         const outDir = kp.side === 'left' ? 1 : -1;
         b.vx = outDir * Math.max(780, Math.abs(b.vx) * 1.05);
         b.vy = -360 + ny * 320;
+        b.lastWasMeteorSpike = false;
+        kp.recoilTimer = 0.22;
         this.audio?.playBallKick(0.75, false);
         this.spawnBurst(kp.x + outDir * 30, kp.y, '#f472b6', 12, 340, 7);
         this.spawnFloatingText(kp.x, kp.y - 65, 'SAVED!', '#4ade80', 24);
@@ -7337,11 +7744,25 @@ class MatchSimulation {
     // 10. Body Dribble / Header / Captain Spore Cap-Bounce!
     for (const p of this.players) {
       const headBonus = p.bigHead ? 1.18 : 1.0;
-      const cx = Math.max(p.x - p.halfW * 0.84, Math.min(p.x + p.halfW * 0.84, b.x));
-      const cy = Math.max(p.y - p.halfH * 0.9 * headBonus, Math.min(p.y + p.halfH * 0.85, b.y));
-      const dx = b.x - cx;
-      const dy = b.y - cy;
-      const dist = Math.hypot(dx, dy);
+      let cx = Math.max(p.x - p.halfW * 0.84, Math.min(p.x + p.halfW * 0.84, b.x));
+      let cy = Math.max(p.y - p.halfH * 0.9 * headBonus, Math.min(p.y + p.halfH * 0.85, b.y));
+      let dx = b.x - cx;
+      let dy = b.y - cy;
+      let dist = Math.hypot(dx, dy);
+      if (dist < 0.0001) {
+        const edges = [
+          { distance: b.x - (p.x - p.halfW * 0.84), nx: -1, ny: 0 },
+          { distance: p.x + p.halfW * 0.84 - b.x, nx: 1, ny: 0 },
+          { distance: b.y - (p.y - p.halfH * 0.9 * headBonus), nx: 0, ny: -1 },
+          { distance: p.y + p.halfH * 0.85 - b.y, nx: 0, ny: 1 },
+        ];
+        const edge = edges.reduce((closest, candidate) => candidate.distance < closest.distance ? candidate : closest);
+        cx = b.x + edge.nx * edge.distance;
+        cy = b.y + edge.ny * edge.distance;
+        dx = edge.nx * 0.001;
+        dy = edge.ny * 0.001;
+        dist = 0.001;
+      }
 
       if (dist < r && dist > 0.0001) {
         if (
@@ -7383,6 +7804,7 @@ class MatchSimulation {
           b.vx += p.facing * 240 + p.vx * 0.3;
           b.lastKicker = p;
           b.lastTeam = p.team;
+          b.lastWasMeteorSpike = false;
           this.audio?.playDrumBounce();
           this.spawnBurst(b.x, b.y + r, '#fde047', 12, 300, 6);
           this.spawnFloatingText(p.x, p.y - 60, 'CAP BOING!', '#fde047', 22);
@@ -7400,6 +7822,7 @@ class MatchSimulation {
           b.vy = Math.min(b.vy, this.mode === 'keep_up' ? -420 : -190) + p.vy * 0.25;
           b.lastKicker = p;
           b.lastTeam = p.team;
+          b.lastWasMeteorSpike = false;
           if (this.mode === 'goalie_gauntlet' && !b.savedCounted && p.team === 0 && b.vx > 80) {
             b.savedCounted = true;
             this.gauntletSaves++;
@@ -7571,6 +7994,7 @@ class MatchSimulation {
           if (ic.timer <= 0) {
             ic.state = 'warn';
             ic.timer = 1.1;
+            this.audio?.playHazardWarning?.('ice');
           }
         } else if (ic.state === 'warn') {
           ic.timer -= dt;
@@ -7596,11 +8020,13 @@ class MatchSimulation {
             }
           }
 
+          if (!ic.active) continue;
           // Hit balls
           for (const b of this.balls) {
             if (Math.hypot(b.x - ic.x, b.y - (ic.y + 32)) < 28 + b.radius) {
               b.vy = 620;
               b.vx += (b.x >= ic.x ? 1 : -1) * 420;
+              b.lastWasMeteorSpike = false;
               ic.active = false;
               ic.timer = 5.0;
               this.audio?.playIcicleCrash();
@@ -7627,6 +8053,7 @@ class MatchSimulation {
         if (lv.state === 'idle' && lv.timer <= 0) {
           lv.state = 'warn';
           lv.timer = 1.3;
+          this.audio?.playHazardWarning?.('lava');
         } else if (lv.state === 'warn' && lv.timer <= 0) {
           lv.state = 'erupt';
           lv.timer = 1.15;
@@ -7640,7 +8067,8 @@ class MatchSimulation {
             }
           }
           for (const p of this.players) {
-            if (p.invulnTimer > 0 || p.starTimer > 0 || p.fireImmuneTimer > 0) continue;
+            if (p.invulnTimer > 0 || p.starTimer > 0 || p.fireImmuneTimer > 0 ||
+                (p.char.stats.phaseDash && p.dashTimer > 0)) continue;
             if (Math.abs(p.x - lv.x) < 34 + p.halfW && p.y + p.halfH > floorY - 220) {
               p.vy = -960;
               p.onGround = false;
@@ -7672,7 +8100,7 @@ class MatchSimulation {
       const speed = 980 + Math.min(680, this.gauntletSaves * 38) + Math.random() * 180;
       const aimY = this.arena.goalCeilingY + 55 + Math.random() * (this.arena.goalFloorY - this.arena.goalCeilingY - 110);
       const tFlight = (cn.x - this.arena.goalLineLeftX) / speed;
-      const gravComp = 0.5 * this.ballPreset.gravity * tFlight;
+      const gravComp = 0.5 * this.ballPreset.gravity * this.arena.gravityScale * tFlight * tFlight;
       const dy = aimY - cn.y - gravComp;
       const dx = this.arena.goalLineLeftX - cn.x;
       const len = Math.hypot(dx, dy) || 1;
@@ -7767,7 +8195,7 @@ class MatchSimulation {
     }
 
     if (this.trial?.specialRule === 'meteor_spikes' && scoringTeam === 0) {
-      if (!ball.lastWasMeteorSpike) {
+      if (!ball.lastWasMeteorSpike || ball.lastKicker?.team !== 0) {
         this.triggerBanner('NO GOAL!', 'MUST SCORE WITH METEOR SPIKE!', '#ef4444', 1.8);
         this.audio?.playBrawlHit();
         this.addShake(12);
@@ -7789,9 +8217,9 @@ class MatchSimulation {
 
     if (ball.lastKicker && ball.lastKicker.team === scoringTeam) {
       ball.lastKicker.stats.goals++;
-    } else {
-      const teamMate = this.players.find((p) => p.team === scoringTeam && !p.isClone);
-      if (teamMate) teamMate.stats.goals++;
+      if (ball.lastWasMeteorSpike) ball.lastKicker.stats.meteorGoals++;
+    } else if (ball.lastKicker) {
+      ball.lastKicker.stats.ownGoals++;
     }
 
     // Custom Locker Room Goal Explosion Palette!
@@ -7834,8 +8262,16 @@ class MatchSimulation {
         : this.players.find((p) => p.team === scoringTeam);
 
     this.phase = 'goal_celebration';
+    for (const player of this.players) {
+      player.chargeTime = 0;
+      player.kickTimer = 0;
+      player.dashTimer = 0;
+      player.parryWindowTimer = 0;
+      player.groundPoundState = 'none';
+      player.groundPoundTimer = 0;
+    }
     this.phaseTimer = 2.15;
-    if (this.settings.goalSlowMo) {
+    if (this.settings.goalSlowMo && !this.settings.reducedMotion) {
       this.slowMoFactor = 0.28;
       this.slowMoTimer = 1.5;
       this.cameraZoom = 1.12;
@@ -7846,9 +8282,11 @@ class MatchSimulation {
     const idx = this.balls.indexOf(ball);
     if (idx !== -1) this.balls.splice(idx, 1);
 
+    const ownGoal = ball.lastKicker && ball.lastKicker.team !== scoringTeam;
     this.triggerBanner(
-      'GOOOAL!!',
-      scorer ? `${scorer.char.name.toUpperCase()} SCORES!` : 'WHAT A STRIKE!',
+      ownGoal ? 'OWN GOAL' : 'GOOOAL!!',
+      ownGoal ? `${ball.lastKicker.char.name.toUpperCase()} DEFLECTS INTO THEIR OWN NET`
+        : scorer ? `${scorer.char.name.toUpperCase()} SCORES!` : 'WHAT A STRIKE!',
       scorer ? scorer.char.primary : '#fde047',
       2.1
     );
@@ -7859,12 +8297,12 @@ class MatchSimulation {
   // --- Sky-Cloud Courier & All 18 Power-Up Mechanics ---
   _updateCourier(dt) {
     if (!this.courier.active) return;
-    const prevX = this.courier.x;
-    const prevY = this.courier.y;
     this.courier.x = VIRTUAL_WIDTH / 2 + Math.sin(this.time * 0.65) * 430;
     this.courier.y = 305 + Math.sin(this.time * 1.3) * 46;
-    this.courier.vx = (this.courier.x - prevX) / Math.max(0.001, dt);
-    this.courier.vy = (this.courier.y - prevY) / Math.max(0.001, dt);
+    this.courier.vx = Math.cos(this.time * 0.65) * 430 * 0.65;
+    this.courier.vy = Math.cos(this.time * 1.3) * 46 * 1.3;
+    this.courier.bubbleX = this.courier.x - this.courier.vx * 0.09 + Math.sin(this.time * 4.2) * 8;
+    this.courier.bubbleY = this.courier.y + 94;
 
     if (!this.courier.heldItemId) {
       this.courier.spawnTimer -= dt;
@@ -8000,13 +8438,15 @@ class MatchSimulation {
       }
 
       case '1UP':
+        if (this.trial || this.mode === 'practice') break;
         this.scores[p.team]++;
         p.stats.goals++;
         this.addShake(14);
         this.spawnShockwave(p.x, p.y, '#10b981', 260, 10);
         this.spawnBurst(p.x, p.y, '#fef08a', 26, 480, 8, 'rect');
         if (this.onGoal) this.onGoal(p.team, this.scores);
-        if (this.settings.scoreLimit > 0 && this.scores[p.team] >= this.settings.scoreLimit) {
+        if ((this.suddenDeath && this.settings.suddenDeathMode === 'golden') ||
+            (this.settings.scoreLimit > 0 && this.scores[p.team] >= this.settings.scoreLimit)) {
           this._finishMatch();
         }
         break;
@@ -8066,7 +8506,7 @@ class MatchSimulation {
         if (existingClones.length < 2) {
           const clone = this._createPlayer(
             {
-              slot: 20 + Math.floor(Math.random() * 1000),
+              slot: this.cloneIdCounter++,
               team: p.team,
               tag: 'CLONE',
               charId: p.char.id,
@@ -8208,6 +8648,7 @@ class MatchSimulation {
         if (Math.hypot(b.x - hd.x, b.y - hd.y) < hd.radius + b.radius) {
           b.vx = (hd.ownerTeam === 0 ? 1 : -1) * 1050;
           b.vy = -480;
+          b.lastWasMeteorSpike = false;
           this.audio?.playBallKick(0.7, false);
         }
       }
@@ -8228,6 +8669,10 @@ class MatchSimulation {
       bn.x += bn.vx * dt;
       bn.y += bn.vy * dt;
 
+      if (bn.y + 16 > ar.goalFloorY + 12) {
+        if (bn.x - 16 < ar.pitchLeftX) { bn.x = ar.pitchLeftX + 16; bn.vx = Math.abs(bn.vx) * 0.35; }
+        if (bn.x + 16 > ar.pitchRightX) { bn.x = ar.pitchRightX - 16; bn.vx = -Math.abs(bn.vx) * 0.35; }
+      }
       const floorY = bn.x >= ar.pitchLeftX && bn.x <= ar.pitchRightX ? ar.pitchFloorY : ar.goalFloorY;
       if (bn.y + 16 >= floorY) {
         bn.y = floorY - 16;
@@ -8259,6 +8704,7 @@ class MatchSimulation {
     for (let i = this.keepers.length - 1; i >= 0; i--) {
       const k = this.keepers[i];
       k.timer -= dt;
+      k.recoilTimer = Math.max(0, (k.recoilTimer || 0) - dt);
       if (this.balls.length > 0) {
         const targetY = Math.max(
           this.arena.goalCeilingY + 75,
@@ -8286,6 +8732,10 @@ class MatchSimulation {
       sh.x += sh.vx * dt;
       sh.y += sh.vy * dt;
 
+      if (sh.y + sh.radius > ar.goalFloorY + 12) {
+        if (sh.x - sh.radius < ar.pitchLeftX) { sh.x = ar.pitchLeftX + sh.radius; sh.vx = Math.abs(sh.vx); }
+        if (sh.x + sh.radius > ar.pitchRightX) { sh.x = ar.pitchRightX - sh.radius; sh.vx = -Math.abs(sh.vx); }
+      }
       const floorY = sh.x >= ar.pitchLeftX && sh.x <= ar.pitchRightX ? ar.pitchFloorY : ar.goalFloorY;
       if (sh.y + sh.radius > floorY) {
         sh.y = floorY - sh.radius;
@@ -8332,6 +8782,7 @@ class MatchSimulation {
         if (Math.hypot(b.x - sh.x, b.y - sh.y) < sh.radius + b.radius) {
           b.vx = sh.vx * 1.15;
           b.vy = -520;
+          b.lastWasMeteorSpike = false;
           this.audio?.playBallKick(0.6, false);
         }
       }
@@ -8408,7 +8859,7 @@ class MatchSimulation {
     if (!p1) return false;
 
     if (this.trial.specialRule === 'meteor_spikes') {
-      return (p1.stats.meteorSpikes || 0) >= (this.trial.targetScore || 2);
+      return p1.stats.meteorGoals >= this.trial.targetScore && this.scores[0] >= this.trial.targetScore;
     }
     if (this.trial.specialRule === 'wall_jumps') {
       return (p1.stats.wallJumps || 0) >= (this.trial.requiredWallJumps || 3);
@@ -8416,6 +8867,7 @@ class MatchSimulation {
     if (this.trial.specialRule === 'parry_shutout') {
       return this.scores[1] === 0 && (p1.stats.parries || 0) >= (this.trial.requiredParries || 3);
     }
+    if (this.trial.specialRule === 'no_lava') return p1.stats.lavaTouches === 0;
     return true;
   }
 
@@ -8426,6 +8878,7 @@ class MatchSimulation {
 
     return {
       mode: this.mode,
+      settings: { ...this.settings, activeMutators: [...(this.settings.activeMutators || [])] },
       trial: this.trial,
       trialSuccess: this._evaluateTrialSuccess(winnerTeam),
       scores: [...this.scores],
@@ -8449,20 +8902,47 @@ class MatchSimulation {
 
 
 // === src/main.js ===
-// Super Kick Kingdom 2.0 (Deluxe Edition) — Main Game Controller, UI State Machine & Render Loop
-// Wires 12 Strikers (+3 Kits), 7 Hazard Arenas, 18 Items, 7 Mutators, 4 Cups (1P/Co-op),
-// Party Knockout Tournament, 3 Arcade Minigames, Locker Room, Star-Coins & 24 Trophies!
+// App lifecycle, accessible menus, local-player input, coaching and the fixed-step render loop.
+
+
+
+
+
+
+
+
+const INPUT_EDGES = ['upPressed', 'downPressed', 'downReleased', 'jumpPressed', 'jumpReleased',
+  'kickPressed', 'kickReleased', 'lobPressed', 'dashPressed', 'itemPressed'];
+const FIXED_STEP = 1 / 120;
 class SuperKickKingdomApp {
   constructor() {
-    this.save = loadSaveData();
+    this.startupWarning = '';
+    this.save = loadSaveData(message => { this.startupWarning = message; });
     this.settings = this.save.settings;
     this.controls = this.save.controls;
 
     this.audio = new AudioEngine(this.settings);
+    this.audio.onError = message => this._pushToast('Sound unavailable', message, '!');
     this.input = new InputManager(this.controls);
     this.touch = new TouchController(this.input, this);
     this.art = new ArtRenderer();
     this.ai = new AIController();
+    this.modalStack = [];
+    this.dialogResume = false;
+    this.accumulator = 0;
+    this.pendingInputs = new Map();
+    this.matchToken = 0;
+    this.practice = null;
+    this.lastControlSignature = '';
+    if (this.touch.isMobile) this.input.activeSource = 'touch';
+    this.art.onAssetStatus = (pending, failures) => {
+      const status = document.getElementById('asset-status');
+      status.classList.toggle('hidden', pending === 0 && failures.length === 0);
+      status.classList.toggle('error', failures.length > 0);
+      status.textContent = failures.length ? `Could not load ${failures.join(', ')}. Reload to retry.`
+        : `Preparing the stadium · ${pending} assets remaining`;
+    };
+    this.art.onAssetsReady = () => this._renderCodex();
 
     this.canvas = document.getElementById('game-canvas');
     this.ctx = this.canvas.getContext('2d');
@@ -8533,6 +9013,18 @@ class SuperKickKingdomApp {
     this._renderMutatorsGrid();
     this._syncMenuBadges();
     this._syncMuteButton();
+    this._applyPreferences();
+    this._updateControlPrompts();
+    if (this.startupWarning) this._pushToast('Save recovery', this.startupWarning, '!');
+    window.addEventListener('blur', () => {
+      if (this.screen === 'match') this.togglePause(true);
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && this.screen === 'match') this.togglePause(true);
+      this.audio.setPaused(document.hidden || this.paused);
+    });
+    window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => this._applyPreferences());
+    document.addEventListener('keydown', event => this._trapDialogFocus(event));
 
     this.lastFrameTime = performance.now();
     requestAnimationFrame((ts) => this._loop(ts));
@@ -8541,12 +9033,18 @@ class SuperKickKingdomApp {
   _persist() {
     this.save.settings = this.settings;
     this.save.controls = this.controls;
-    saveData(this.save);
+    saveData(this.save, message => {
+      console.warn(message);
+      if (!this.saveWarningShown) {
+        this._pushToast('Progress is not being saved', message, '!');
+        this.saveWarningShown = true;
+      }
+    });
     this._syncMenuBadges();
   }
 
   _isMinigameMode(mode = this.selectedMode) {
-    return mode === 'target_blitz' || mode === 'keep_up' || mode === 'goalie_gauntlet';
+    return mode === 'practice' || mode === 'target_blitz' || mode === 'keep_up' || mode === 'goalie_gauntlet';
   }
 
   _syncMenuBadges() {
@@ -8600,7 +9098,17 @@ class SuperKickKingdomApp {
     if (!container) return;
     const el = document.createElement('div');
     el.className = 'trophy-toast';
-    el.innerHTML = `<div style="font-size:24px">${icon}</div><div><strong>${title}</strong><span>${subtitle}</span></div>`;
+    const symbol = document.createElement('span');
+    symbol.textContent = icon;
+    symbol.setAttribute('aria-hidden', 'true');
+    const copy = document.createElement('div');
+    const heading = document.createElement('strong');
+    heading.textContent = title;
+    const detail = document.createElement('span');
+    detail.textContent = subtitle;
+    copy.append(heading, detail);
+    el.append(symbol, copy);
+    while (container.children.length >= 3) container.firstElementChild.remove();
     container.appendChild(el);
     setTimeout(() => {
       el.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
@@ -8645,6 +9153,24 @@ class SuperKickKingdomApp {
     };
     window.addEventListener('pointerdown', unlockOnce, { once: true });
     window.addEventListener('keydown', unlockOnce, { once: true });
+    document.getElementById('btn-start-practice').addEventListener('click', () => this._startPractice());
+    document.getElementById('btn-coach').addEventListener('click', () => this._openCoach());
+    document.getElementById('btn-coach-practice').addEventListener('click', () => this._startPractice());
+    document.getElementById('btn-coach-ready').addEventListener('click', () => {
+      if (this.screen === 'match' && !this.save.onboarding.seenModes.includes(this.selectedMode)) {
+        this.save.onboarding.seenModes.push(this.selectedMode);
+        this._persist();
+      }
+      this._closeModal('modal-coach');
+    });
+    document.getElementById('btn-finish-practice').addEventListener('click', () => {
+      const completed = this.practice?.complete;
+      this._showScreen('menu');
+      if (completed) {
+        this.selectedMode = '1v1_cpu';
+        this._showScreen('select');
+      }
+    });
 
     // Hover sound on static buttons
     document.querySelectorAll('button').forEach((btn) => {
@@ -8723,13 +9249,6 @@ class SuperKickKingdomApp {
       this.audio.playClick();
       this._openLockerModal('chars');
     });
-    const openMutBtn = document.getElementById('btn-mode-mutators');
-    if (openMutBtn) {
-      openMutBtn.addEventListener('click', () => {
-        this.audio.playClick();
-        this._openMutatorsModal();
-      });
-    }
     document.getElementById('btn-open-options').addEventListener('click', () => {
       this.audio.playClick();
       this._openModal('modal-options');
@@ -8908,7 +9427,7 @@ class SuperKickKingdomApp {
           const castleIdx = ARENAS.findIndex((a) => a.id === 'castle');
           if (castleIdx >= 0) this.arenaIdx = castleIdx;
         }
-        document.getElementById('modal-arcade').classList.add('hidden');
+        this._closeModal('modal-arcade');
         this._showScreen('select');
       });
     });
@@ -8971,7 +9490,7 @@ class SuperKickKingdomApp {
       el.addEventListener('click', () => {
         this.audio.playClick();
         this.input.cancelRebind();
-        document.getElementById(el.dataset.close).classList.add('hidden');
+        this._closeModal(el.dataset.close);
         this._syncQuickRulePills();
         this._syncMenuBadges();
         if (this.screen === 'select') this._renderSelectUI();
@@ -9067,6 +9586,11 @@ class SuperKickKingdomApp {
       document.getElementById('opt-vol-master').value = String(this.settings.masterVolume);
       document.getElementById('opt-vol-music').value = String(this.settings.musicVolume);
       document.getElementById('opt-vol-sfx').value = String(this.settings.sfxVolume);
+      document.getElementById('opt-vol-ambience').value = String(this.settings.ambienceVolume);
+      document.getElementById('opt-music-style').value = this.settings.musicStyle;
+      document.getElementById('opt-sound-palette').value = this.settings.soundPalette;
+      document.getElementById('opt-motion').value = this.settings.motion;
+      document.getElementById('opt-tips').checked = this.settings.showTips;
     };
     this._syncOptionsForm = syncForm;
     syncForm();
@@ -9090,6 +9614,12 @@ class SuperKickKingdomApp {
       this.settings.masterVolume = Number(document.getElementById('opt-vol-master').value);
       this.settings.musicVolume = Number(document.getElementById('opt-vol-music').value);
       this.settings.sfxVolume = Number(document.getElementById('opt-vol-sfx').value);
+      this.settings.ambienceVolume = Number(document.getElementById('opt-vol-ambience').value);
+      this.settings.musicStyle = document.getElementById('opt-music-style').value;
+      this.settings.soundPalette = document.getElementById('opt-sound-palette').value;
+      this.settings.motion = document.getElementById('opt-motion').value;
+      this.settings.showTips = document.getElementById('opt-tips').checked;
+      this._applyPreferences();
       this.audio.syncVolumes();
       this._persist();
       this._syncQuickRulePills();
@@ -9110,6 +9640,11 @@ class SuperKickKingdomApp {
       'opt-vol-master',
       'opt-vol-music',
       'opt-vol-sfx',
+      'opt-vol-ambience',
+      'opt-music-style',
+      'opt-sound-palette',
+      'opt-motion',
+      'opt-tips',
     ].forEach((id) => {
       document.getElementById(id).addEventListener('input', onChange);
       document.getElementById(id).addEventListener('change', onChange);
@@ -9128,6 +9663,8 @@ class SuperKickKingdomApp {
         partyUnlockAll: keepParty,
       });
       this.audio.syncVolumes();
+      this._applyPreferences();
+      this._syncMuteButton();
       syncForm();
       this._syncQuickRulePills();
       this._persist();
@@ -9136,7 +9673,180 @@ class SuperKickKingdomApp {
 
   _openModal(id) {
     if (id === 'modal-options') this._syncOptionsForm();
-    document.getElementById(id).classList.remove('hidden');
+    if (this.modalStack.some(entry => entry.id === id)) return;
+    const modal = document.getElementById(id);
+    this.modalStack.push({ id, returnFocus: document.activeElement });
+    modal.classList.remove('hidden');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    const heading = modal.querySelector('h2');
+    if (heading) {
+      if (!heading.id) heading.id = `${id}-title`;
+      modal.setAttribute('aria-labelledby', heading.id);
+    }
+    if (this.screen === 'match' && !this.paused) {
+      this.dialogResume = true;
+      this.paused = true;
+    }
+    this.input.clearAll();
+    this.pendingInputs.clear();
+    this.accumulator = 0;
+    this._syncDialogState();
+    (modal.querySelector('.kickoff-cta-btn:not(.hidden)') || this._focusableElements(modal)[0])?.focus();
+  }
+
+  _closeModal(id) {
+    const index = this.modalStack.findIndex(entry => entry.id === id);
+    if (index < 0) return;
+    const entries = this.modalStack.splice(index);
+    for (const entry of entries) document.getElementById(entry.id).classList.add('hidden');
+    this.input.cancelRebind();
+    this.input.clearAll();
+    this.pendingInputs.clear();
+    this.accumulator = 0;
+    if (!this.modalStack.length && this.dialogResume) {
+      this.dialogResume = false;
+      this.paused = false;
+    }
+    this._syncDialogState();
+    const previous = entries[0].returnFocus;
+    if (previous?.isConnected && !previous.closest('[inert], .hidden')) previous.focus({ preventScroll: true });
+  }
+
+  _closeAllModals() {
+    this.modalStack = [];
+    this.dialogResume = false;
+    this.paused = false;
+    document.querySelectorAll('.modal-backdrop').forEach(modal => modal.classList.add('hidden'));
+    this.input.cancelRebind();
+    this._syncDialogState();
+  }
+
+  _syncDialogState() {
+    const top = this.modalStack.at(-1)?.id;
+    this.input.gameplayActive = this.screen === 'match' && !this.paused && !top;
+    for (const id of ['top-utility-bar', 'play-surface', 'screen-menu', 'screen-select', 'screen-results']) {
+      document.getElementById(id).inert = Boolean(top);
+    }
+    document.querySelectorAll('.modal-backdrop').forEach(modal => {
+      modal.inert = Boolean(top && modal.id !== top);
+      const depth = this.modalStack.findIndex(entry => entry.id === modal.id);
+      modal.style.zIndex = String(60 + Math.max(0, depth));
+      modal.setAttribute('aria-modal', String(modal.id === top));
+    });
+    this.touch.updateVisibility(this.screen, this.settings.touchControls);
+    this.audio.setPaused(this.paused || document.hidden);
+  }
+
+  _focusableElements(root) {
+    return [...root.querySelectorAll('button, input, select, [tabindex="0"]')]
+      .filter(element => !element.disabled && !element.closest('[inert]') && element.getClientRects().length);
+  }
+
+  _trapDialogFocus(event) {
+    if (event.key !== 'Tab' || !this.modalStack.length) return;
+    const elements = this._focusableElements(document.getElementById(this.modalStack.at(-1).id));
+    if (!elements.length) return;
+    const index = elements.indexOf(document.activeElement);
+    if ((event.shiftKey && index <= 0) || (!event.shiftKey && (index < 0 || index === elements.length - 1))) {
+      event.preventDefault();
+      elements[event.shiftKey ? elements.length - 1 : 0].focus();
+    }
+  }
+
+  _applyPreferences() {
+    this.reducedMotion = this.settings.motion === 'reduced' ||
+      (this.settings.motion === 'auto' && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    document.body.dataset.motion = this.reducedMotion ? 'reduced' : 'full';
+    this.art.reducedMotion = this.reducedMotion;
+    if (this.match) {
+      Object.assign(this.match.settings, {
+        reducedMotion: this.reducedMotion, screenShake: this.settings.screenShake,
+        hitstop: this.settings.hitstop, goalSlowMo: this.settings.goalSlowMo,
+      });
+      if (this.reducedMotion) {
+        Object.assign(this.match, {
+          shakeMag: 0, shakeX: 0, shakeY: 0, cameraZoom: 1,
+          cameraFocusX: VIRTUAL_WIDTH / 2, cameraFocusY: VIRTUAL_HEIGHT / 2,
+          slowMoFactor: 1, slowMoTimer: 0,
+        });
+      }
+    }
+    this.touch.updateVisibility(this.screen, this.settings.touchControls);
+  }
+
+  _startPractice() {
+    this.selectedMode = 'practice';
+    this.arenaIdx = 0;
+    if (!isCharUnlocked(this.save, CHARACTERS[this.charIdx0].id)) this.charIdx0 = 0;
+    this.startMatch();
+  }
+
+  _openCoach() {
+    const mode = this.screen === 'match' ? this.selectedMode : 'practice';
+    const [title, dialogue] = MODE_BRIEFINGS[mode] || MODE_BRIEFINGS['1v1_cpu'];
+    document.getElementById('coach-title').textContent = title;
+    document.getElementById('coach-dialogue').textContent = dialogue;
+    const arena = this.match?.arena || ARENAS[this.arenaIdx];
+    const guide = ARENA_GUIDES[arena.id] || ARENA_GUIDES.meadow;
+    document.getElementById('coach-stage-label').textContent = `${arena.name} / ${guide.label}`;
+    document.getElementById('coach-stage-tip').textContent = this.match?.trial?.ruleText ||
+      (this.match?.settings.stageHazards === false
+        ? 'Stage hazards are off. Platforms and the stadium gravity and traction still apply.'
+        : guide.tip);
+    document.getElementById('btn-coach-ready').textContent = this.screen === 'match' ? "LET'S PLAY" : 'GOT IT';
+    document.getElementById('btn-coach-practice').classList.toggle('hidden', this.selectedMode === 'practice' && this.screen === 'match');
+    this._updateControlPrompts(true);
+    this._openModal('modal-coach');
+  }
+
+  _appendControlPrompts(container, hints, actions) {
+    container.replaceChildren();
+    const names = { move: 'Move', jump: 'Jump', kick: 'Strike', lob: 'Lob', dash: 'Dash / parry', item: 'Use item', down: 'Ground pound', pause: 'Pause' };
+    for (const action of actions) {
+      const prompt = document.createElement('span');
+      prompt.className = 'control-prompt';
+      const key = document.createElement('kbd');
+      key.textContent = hints[action];
+      const label = document.createElement('span');
+      label.textContent = names[action];
+      prompt.append(key, label);
+      container.append(prompt);
+    }
+  }
+
+  _updateControlPrompts(force = false) {
+    const source = this.input.activeSource;
+    const signature = `${source}:${this.input.activeSlot}:${this.screen}:${this.selectedMode}:${this.practice?.step}:${this.paused}:${this.input.connectedGamepads}:${JSON.stringify(this.controls)}`;
+    if (!force && signature === this.lastControlSignature) return;
+    this.lastControlSignature = signature;
+    const hints = controlHints(this.input);
+    this._appendControlPrompts(document.getElementById('coach-controls'), hints, ['move', 'jump', 'kick', 'lob', 'dash', 'item']);
+    const toast = document.getElementById('controls-toast');
+    const human = this.match?.players.find(player => !player.isAI && player.controlSlot === this.input.activeSlot) ||
+      this.match?.players.find(player => !player.isAI);
+    const slot = human?.controlSlot ?? 0;
+    this._appendControlPrompts(toast, controlHints(this.input, slot), ['move', 'jump', 'kick', 'dash', 'item']);
+    const tag = document.createElement('b');
+    tag.textContent = `${source === 'gamepad' ? 'GAMEPAD' : source === 'touch' ? 'TOUCH' : 'KEYBOARD'} / ${human?.tag || 'P1'}`;
+    toast.prepend(tag);
+    document.getElementById('menu-input-status').textContent = source === 'gamepad'
+      ? `${this.input.connectedGamepads} controller${this.input.connectedGamepads === 1 ? '' : 's'} ready · A to confirm`
+      : source === 'touch' ? 'Touch ready · Landscape recommended' : 'Keyboard ready · Gamepads welcome';
+    this.touch.updateVisibility(this.screen, this.settings.touchControls);
+    this._renderPracticeCoach();
+  }
+
+  _renderPracticeCoach() {
+    const panel = document.getElementById('practice-coach');
+    panel.classList.toggle('hidden', !this.practice || this.screen !== 'match');
+    if (!this.practice || this.screen !== 'match') return;
+    const step = PRACTICE_STEPS[this.practice.step];
+    document.getElementById('practice-step').textContent = this.practice.complete ? 'READY FOR MATCH NIGHT' : `SKILL ${this.practice.step + 1} / ${PRACTICE_STEPS.length}`;
+    document.getElementById('practice-title').textContent = step?.title || 'You have got this.';
+    document.getElementById('practice-dialogue').textContent = step?.dialogue || 'Coach: Great work. Your next challenge is the raised goal. Keep practicing, or take on your first rival.';
+    this._appendControlPrompts(document.getElementById('practice-prompts'), controlHints(this.input), step?.actions || ['jump', 'kick']);
+    document.getElementById('btn-finish-practice').textContent = this.practice.complete ? 'Play a match' : 'Leave practice';
   }
 
   // =========================================================================
@@ -9171,13 +9881,13 @@ class SuperKickKingdomApp {
         this.selectedMode = 'cup';
         this._ensureValidAlly();
         this._applyCupRoundSetup();
-        document.getElementById('modal-cups').classList.add('hidden');
+        this._closeModal('modal-cups');
         this._showScreen('select');
       });
       grid.appendChild(card);
     }
 
-    document.getElementById('modal-cups').classList.remove('hidden');
+    this._openModal('modal-cups');
   }
 
   _applyCupRoundSetup() {
@@ -9198,7 +9908,7 @@ class SuperKickKingdomApp {
   // =========================================================================
   _openTrialsModal() {
     this._renderTrialsGrid();
-    document.getElementById('modal-trials').classList.remove('hidden');
+    this._openModal('modal-trials');
   }
 
   _renderTrialsGrid() {
@@ -9252,7 +9962,7 @@ class SuperKickKingdomApp {
     const arIdx = ARENAS.findIndex((a) => a.id === trial.arenaId);
     this.arenaIdx = arIdx >= 0 ? arIdx : 0;
 
-    document.getElementById('modal-trials').classList.add('hidden');
+    this._closeModal('modal-trials');
     this.startMatch();
   }
 
@@ -9262,7 +9972,7 @@ class SuperKickKingdomApp {
     } else {
       this._renderTournamentBracket();
     }
-    document.getElementById('modal-tourney').classList.remove('hidden');
+    this._openModal('modal-tourney');
   }
 
   _generateTournamentBracket() {
@@ -9283,7 +9993,7 @@ class SuperKickKingdomApp {
     const entrants = [];
     for (let h = 0; h < humans; h++) {
       let chosen = shuffledUnlocked[h % shuffledUnlocked.length];
-      if (h === 0) chosen = CHARACTERS[this.charIdx0];
+      if (h === 0 && isCharUnlocked(this.save, CHARACTERS[this.charIdx0].id)) chosen = CHARACTERS[this.charIdx0];
       else if (h === 1 && isCharUnlocked(this.save, CHARACTERS[this.charIdx1].id)) {
         chosen = CHARACTERS[this.charIdx1];
       }
@@ -9472,7 +10182,7 @@ class SuperKickKingdomApp {
     this.kitIdx1 = nextMatch.pB.kitIdx || 0;
     this.arenaIdx = Math.max(0, ARENAS.findIndex((a) => a.id === nextMatch.arenaId));
 
-    document.getElementById('modal-tourney').classList.add('hidden');
+    this._closeModal('modal-tourney');
     this.startMatch();
   }
 
@@ -9480,15 +10190,16 @@ class SuperKickKingdomApp {
     document.getElementById('rec-target').textContent = `BEST: ${this.save.stats.targetBestScore} PTS`;
     document.getElementById('rec-keepup').textContent = `BEST: ${this.save.stats.keepUpBestTime.toFixed(1)}s`;
     document.getElementById('rec-gauntlet').textContent = `BEST: ${this.save.stats.gauntletBestSaves} SAVES`;
-    document.getElementById('modal-arcade').classList.remove('hidden');
+    this._openModal('modal-arcade');
   }
 
   _openMutatorsModal() {
     this._renderMutatorsGrid();
-    document.getElementById('modal-mutators').classList.remove('hidden');
+    this._openModal('modal-mutators');
   }
 
   _renderMutatorsGrid() {
+    const focusedId = document.activeElement?.id;
     const grid = document.getElementById('mutators-grid');
     if (!grid) return;
     grid.innerHTML = '';
@@ -9496,7 +10207,10 @@ class SuperKickKingdomApp {
 
     for (const mut of MUTATORS) {
       const isOn = active.includes(mut.id);
-      const card = document.createElement('div');
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.id = `mutator-${mut.id}`;
+      card.setAttribute('aria-pressed', String(isOn));
       card.className = `mutator-card ${isOn ? 'active' : ''}`;
       card.innerHTML = `
         <div class="mutator-icon">${mut.icon}</div>
@@ -9516,13 +10230,14 @@ class SuperKickKingdomApp {
       });
       grid.appendChild(card);
     }
+    if (focusedId?.startsWith('mutator-')) document.getElementById(focusedId)?.focus({ preventScroll: true });
   }
 
   _openLockerModal(tab = this.lockerTab) {
     this.lockerTab = tab;
     document.getElementById('chk-party-unlock').checked = Boolean(this.settings.partyUnlockAll);
     this._renderLockerContent();
-    document.getElementById('modal-locker').classList.remove('hidden');
+    this._openModal('modal-locker');
   }
 
   _renderLockerContent() {
@@ -9725,7 +10440,7 @@ class SuperKickKingdomApp {
 
   _openControlsModal() {
     this._renderRebindLists();
-    document.getElementById('modal-controls').classList.remove('hidden');
+    this._openModal('modal-controls');
   }
 
   _renderRebindLists() {
@@ -9760,10 +10475,17 @@ class SuperKickKingdomApp {
           this.input.startRebind((newCode) => {
             btn.classList.remove('listening');
             if (newCode) {
+              const conflict = this.input.bindingConflict(playerKey, act, newCode);
+              if (conflict) {
+                this._pushToast('Choose another key', conflict, '!');
+                this._renderRebindLists();
+                return;
+              }
               const existing = this.controls[playerKey][act] || [];
               this.controls[playerKey][act] = [newCode, ...existing.filter((c) => c !== newCode)].slice(0, 2);
               this._persist();
               this.audio.playClick();
+              this._updateControlPrompts(true);
             }
             this._renderRebindLists();
           });
@@ -9805,7 +10527,20 @@ class SuperKickKingdomApp {
   // SCREEN TRANSITIONS & SELECT SCREEN
   // =========================================================================
   _showScreen(next) {
+    this._closeAllModals();
+    this.input.clearAll();
+    this.pendingInputs.clear();
+    this.accumulator = 0;
+    if (next !== 'match') {
+      this.matchToken++;
+      this.match?.dispose();
+      this.match = null;
+      this.practice = null;
+    }
     this.screen = next;
+    document.body.dataset.screen = next;
+    document.body.dataset.mode = this.selectedMode;
+    this.input.gameplayActive = next === 'match';
     ['screen-menu', 'screen-select', 'screen-results'].forEach((id) => {
       document.getElementById(id).classList.add('hidden');
     });
@@ -9837,6 +10572,11 @@ class SuperKickKingdomApp {
     if (this.touch) {
       this.touch.updateVisibility(next, this.settings.touchControls);
     }
+    this._updateControlPrompts(true);
+    if (next !== 'match') {
+      const root = document.getElementById(`screen-${next}`);
+      (root?.querySelector('.quick-mode-btn') || root?.querySelector('.kickoff-cta-btn:not(.hidden)') || root?.querySelector('.back-btn'))?.focus({ preventScroll: true });
+    } else document.activeElement?.blur();
   }
 
   _cycleCharacter(slot, dir) {
@@ -9946,7 +10686,8 @@ class SuperKickKingdomApp {
       this._tryUnlockSelectChar(0);
       return;
     }
-    if (this.selectedMode === '1v1_pvp') {
+    if (this.selectedMode === '1v1_pvp' ||
+        (this.selectedMode === '2v2' && ['4p', '3p', 'duel'].includes(this.twoVsTwoFormat))) {
       const ch1 = CHARACTERS[this.charIdx1];
       if (!isCharUnlocked(this.save, ch1.id)) {
         this._tryUnlockSelectChar(1);
@@ -9958,6 +10699,7 @@ class SuperKickKingdomApp {
   }
 
   _renderSelectUI() {
+    const focusedId = document.activeElement?.id;
     const cup = this.activeCup || GRAND_PRIX_CUPS[0];
     const modeTitles = {
       '1v1_cpu': '1P VS CPU — SELECT STRIKERS',
@@ -9999,6 +10741,7 @@ class SuperKickKingdomApp {
     }
 
     const rightPanel = document.getElementById('right-fighter-panel');
+    rightPanel.inert = this._isMinigameMode() || this.selectedMode === 'cup';
     const aiRow = document.getElementById('ai-diff-row');
 
     if (this._isMinigameMode()) {
@@ -10053,7 +10796,12 @@ class SuperKickKingdomApp {
     const arenaBox = document.getElementById('arena-cards-container');
     arenaBox.innerHTML = '';
     ARENAS.forEach((ar, idx) => {
-      const card = document.createElement('div');
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.id = `arena-${ar.id}`;
+      card.setAttribute('aria-label', ar.name);
+      card.setAttribute('aria-pressed', String(idx === this.arenaIdx));
+      card.disabled = this.selectedMode === 'cup';
       card.className = `arena-thumb ${idx === this.arenaIdx ? 'selected' : ''} ${ar.isRandom ? 'arena-random-thumb' : ''}`;
       if (ar.isRandom) {
         card.style.background = 'linear-gradient(135deg, #4f46e5 0%, #9333ea 50%, #f43f5e 100%)';
@@ -10073,17 +10821,25 @@ class SuperKickKingdomApp {
 
     const curArena = ARENAS[this.arenaIdx] || ARENAS[0];
     document.getElementById('arena-title').textContent = `${curArena.name} — ${curArena.subtitle}`;
-    document.getElementById('arena-desc').textContent = curArena.desc;
+    const guide = ARENA_GUIDES[curArena.id];
+    document.getElementById('arena-desc').textContent = guide
+      ? `${guide.tip} ${this.settings.stageHazards ? guide.hazard : 'Stage hazards disabled.'}`
+      : curArena.desc;
 
     this._syncQuickRulePills();
     this._syncMenuBadges();
+    if (focusedId) document.getElementById(focusedId)?.focus({ preventScroll: true });
+    document.getElementById('btn-random-arena').disabled = this.selectedMode === 'cup';
+    document.getElementById('btn-random-ally').classList.toggle('hidden', !showAllyBtn);
+    document.getElementById('btn-random-foe-ally').classList.toggle('hidden', !is2v2);
   }
 
   _populateFighterCard(slot, baseChar, kitIdx) {
     const ch = getCharacter(baseChar.id, kitIdx);
     const unlocked = isCharUnlocked(this.save, baseChar.id);
     const requiresUnlock =
-      !unlocked && (slot === 0 || this.selectedMode === '1v1_pvp');
+      !unlocked && (slot === 0 || this.selectedMode === '1v1_pvp' ||
+        (this.selectedMode === '2v2' && ['4p', '3p', 'duel'].includes(this.twoVsTwoFormat)));
 
     document.getElementById(`char${slot}-name`).textContent = ch.name;
     document.getElementById(`btn-kit-${slot}`).textContent = `🎨 ${ch.kitName || 'Kit 1'}`;
@@ -10126,8 +10882,12 @@ class SuperKickKingdomApp {
     CHARACTERS.forEach((c, idx) => {
       const chipUnlocked = isCharUnlocked(this.save, c.id);
       const chip = document.createElement('button');
+      chip.id = `roster-${slot}-${c.id}`;
+      chip.setAttribute('aria-label', c.name);
+      chip.setAttribute('aria-pressed', String((slot === 0 ? this.charIdx0 : this.charIdx1) === idx));
       const activeIdx = slot === 0 ? this.charIdx0 : this.charIdx1;
-      const showLockedStyle = !chipUnlocked && (slot === 0 || this.selectedMode === '1v1_pvp');
+      const showLockedStyle = !chipUnlocked && (slot === 0 || this.selectedMode === '1v1_pvp' ||
+        (this.selectedMode === '2v2' && ['4p', '3p', 'duel'].includes(this.twoVsTwoFormat)));
       chip.className = `roster-chip has-sprite ${idx === activeIdx ? 'selected' : ''} ${showLockedStyle ? 'locked' : ''}`;
       chip.style.backgroundImage = `url('./assets/sprites/portrait_${c.id}.png'), radial-gradient(circle at 50% 35%, #ffffff44, ${c.primary})`;
       if (showLockedStyle) {
@@ -10150,16 +10910,6 @@ class SuperKickKingdomApp {
       strip.appendChild(chip);
     });
 
-    // Special [ 🎲 ] Random Striker Roulette Chip
-    const rndChip = document.createElement('button');
-    rndChip.className = 'roster-chip random-roster-chip';
-    rndChip.innerHTML = '🎲';
-    rndChip.title = 'Roll Random Striker!';
-    rndChip.addEventListener('click', () => {
-      if (slot === 1 && (this.selectedMode === 'cup' || this._isMinigameMode())) return;
-      this.randomizePlayer(slot);
-    });
-    strip.appendChild(rndChip);
   }
 
   _syncQuickRulePills() {
@@ -10197,6 +10947,7 @@ class SuperKickKingdomApp {
   }
 
   randomizePlayer(slot) {
+    if (slot === 1 && (this.selectedMode === 'cup' || this._isMinigameMode())) return;
     this.audio.playClick();
     const unlocked = CHARACTERS.filter((c) => isCharUnlocked(this.save, c.id));
     if (unlocked.length === 0) return;
@@ -10227,6 +10978,7 @@ class SuperKickKingdomApp {
   }
 
   randomizeArena() {
+    if (this.selectedMode === 'cup') return;
     this.audio.playClick();
     const realArenas = ARENAS.filter((a) => !a.isRandom);
     const picked = realArenas[Math.floor(Math.random() * realArenas.length)];
@@ -10239,6 +10991,10 @@ class SuperKickKingdomApp {
   // MATCH LAUNCH, HUD & RESULTS LIFECYCLE
   // =========================================================================
   startMatch() {
+    this.match?.dispose();
+    this._closeAllModals();
+    this.practice = null;
+    const token = ++this.matchToken;
     const ch0 = CHARACTERS[this.charIdx0];
     const ch1 = CHARACTERS[this.charIdx1];
     const arena = ARENAS[this.arenaIdx] || ARENAS[0];
@@ -10249,7 +11005,8 @@ class SuperKickKingdomApp {
       playersConfig = [
         { slot: 0, team: 0, tag: 'P1', charId: ch0.id, kitIdx: this.kitIdx0, isAI: false, role: 'striker' },
       ];
-      if (this.selectedMode === 'keep_up') introTitle = 'DON’T LET ANY BALL HIT THE LAVA!';
+      if (this.selectedMode === 'practice') introTitle = 'LEARN AT YOUR OWN PACE';
+      else if (this.selectedMode === 'keep_up') introTitle = 'DON’T LET ANY BALL HIT THE LAVA!';
       else if (this.selectedMode === 'goalie_gauntlet') introTitle = 'GUARD YOUR NET — 3 LIVES!';
       else introTitle = 'SMASH TARGETS & SCORE FOR 2x COMBO!';
     } else if (this.selectedMode === '1v1_pvp') {
@@ -10361,7 +11118,7 @@ class SuperKickKingdomApp {
       const tm = this.tourneyState.activeMatch;
       const slotFor = (ent, sideSlot) => {
         if (ent.isAI) return sideSlot;
-        if (this.input.connectedGamepads > ent.humanIdx) return ent.humanIdx;
+        if (this.input.getGamepad(ent.humanIdx)) return ent.humanIdx;
         return sideSlot; // Pass-and-play keyboard seamlessly maps Left->WASD (0), Right->Arrows (1)!
       };
       // If single human is on Right side vs CPU on Left, let single human still use WASD (slot 0) if no 2nd pad!
@@ -10373,7 +11130,8 @@ class SuperKickKingdomApp {
       introTitle = `TOURNAMENT: ${tm.pA.tag} VS ${tm.pB.tag}`;
       playersConfig = [
         {
-          slot: slotA,
+          slot: 0,
+          controlSlot: slotA,
           team: 0,
           tag: tm.pA.tag,
           charId: tm.pA.charId,
@@ -10382,7 +11140,8 @@ class SuperKickKingdomApp {
           role: 'striker',
         },
         {
-          slot: slotB,
+          slot: 1,
+          controlSlot: slotB,
           team: 1,
           tag: tm.pB.tag,
           charId: tm.pB.charId,
@@ -10441,16 +11200,24 @@ class SuperKickKingdomApp {
       trial: this.selectedMode === 'trial' ? this.activeTrial : null,
       arenaId: chosenArena.id,
       playersConfig,
-      settings: this.settings,
+      settings: { ...this.settings, reducedMotion: this.reducedMotion },
       audio: this.audio,
       introTitle,
       onGoal: () => this._syncHUD(),
-      onMatchEnd: (summary) => this._handleMatchFinished(summary),
+      onMatchEnd: (summary) => {
+        if (this.matchToken === token && this.screen === 'match') this._handleMatchFinished(summary);
+      },
     });
 
     this._setupMatchHUD(ch0, ch1);
     this._showScreen('match');
+    if (this.selectedMode === 'practice') {
+      this.practice = new PracticeCoach(this.match);
+      this._renderPracticeCoach();
+      document.getElementById('controls-toast').classList.add('hidden');
+    } else document.getElementById('controls-toast').classList.remove('hidden');
     this._syncHUD();
+    if (this.settings.showTips && !this.save.onboarding.seenModes.includes(this.selectedMode)) this._openCoach();
   }
 
   _setupMatchHUD(ch0, ch1) {
@@ -10485,31 +11252,23 @@ class SuperKickKingdomApp {
           : this.match?.players[0]?.tag || 'PLAYER 1';
     }
 
-    const controlsToast = document.getElementById('controls-toast');
-    if (this.selectedMode === '2v2' && (this.twoVsTwoFormat === '4p' || (this.match?.players.filter((p) => !p.isAI).length >= 4))) {
-      controlsToast.innerHTML = `
-        <span><b>🎮 4P 2v2 COUCH:</b> P1 (Pad 1/WASD) &amp; P3 (Pad 3/IJKL) vs P2 (Pad 2/Arrows) &amp; P4 (Pad 4/NumPad)</span>
-        <span class="toast-sep">|</span>
-        <span><b>CONTROLS:</b> Stick/D-Pad Move • <b>A:</b> Jump • <b>X:</b> Strike (Hold: Charge, Up+X: Lob, Down in Air: Ground Pound) • <b>B/LB:</b> Dash • <b>RB:</b> Item • <b>Start:</b> Pause</span>
-      `;
-    }
-
-    const p2Hint = document.getElementById('p2-toast-hint');
-    const sep = document.querySelector('.toast-sep');
-    const hasTwoHumans = this.match?.players.filter((p) => !p.isAI).length >= 2;
-    if (p2Hint) p2Hint.classList.toggle('hidden', !hasTwoHumans);
-    if (sep) sep.classList.toggle('hidden', !hasTwoHumans);
+    this._updateControlPrompts(true);
 
     const hypeRow = document.getElementById('hud-hype-row');
     const hypeBox1 = document.getElementById('hype-box-1');
-    if (this.settings.hyperStrikes === false) {
+    if (this.match.settings.hyperStrikes === false || this.selectedMode === 'practice') {
       hypeRow.classList.add('hidden');
     } else {
       hypeRow.classList.remove('hidden');
       hypeBox1.style.visibility = this._isMinigameMode() ? 'hidden' : 'visible';
     }
 
-    if (this.selectedMode === 'target_blitz') {
+    if (this.selectedMode === 'practice') {
+      leftSub.textContent = 'GUIDED PRACTICE';
+      rightName.textContent = 'SKILLS';
+      rightSub.textContent = 'AT YOUR PACE';
+      modeTag.textContent = 'TRAINING';
+    } else if (this.selectedMode === 'target_blitz') {
       rightName.textContent = 'BEST RECORD';
       rightSub.textContent = 'PTS';
       modeTag.textContent = 'TARGET BLITZ';
@@ -10536,6 +11295,8 @@ class SuperKickKingdomApp {
       rightName.textContent = ch1.name.toUpperCase();
       rightSub.textContent = `TRIAL #${this.activeTrial.num}`;
       modeTag.textContent = 'STRIKER TRIAL';
+    } else if (this.selectedMode === '2v2') {
+      rightName.textContent = ch1.name.toUpperCase();
     } else {
       rightName.textContent = ch1.name.toUpperCase();
       rightSub.textContent =
@@ -10551,7 +11312,10 @@ class SuperKickKingdomApp {
     const rightScoreEl = document.getElementById('hud-right-score');
     const timerEl = document.getElementById('hud-timer');
 
-    if (this.selectedMode === 'target_blitz') {
+    if (this.selectedMode === 'practice') {
+      leftScoreEl.textContent = String(m.scores[0]);
+      rightScoreEl.textContent = `${this.practice?.step || 0}/5`;
+    } else if (this.selectedMode === 'target_blitz') {
       leftScoreEl.textContent = String(m.scores[0]);
       rightScoreEl.textContent = String(Math.max(this.save.stats.targetBestScore, m.scores[0]));
     } else if (this.selectedMode === 'keep_up') {
@@ -10574,7 +11338,7 @@ class SuperKickKingdomApp {
       timerEl.textContent = `W-${wave}`;
       timerEl.classList.toggle('urgent', m.gauntletLives === 1);
       this.audio.setUrgent(m.gauntletLives === 1);
-    } else if (m.suddenDeath && this.settings.suddenDeathMode === 'golden') {
+    } else if (m.suddenDeath && m.settings.suddenDeathMode === 'golden') {
       timerEl.textContent = 'GOLDEN';
       timerEl.classList.add('urgent');
       this.audio.setUrgent(true);
@@ -10593,7 +11357,11 @@ class SuperKickKingdomApp {
     }
 
     // Sync Team Hype Meters
-    if (this.settings.hyperStrikes !== false && m.hype) {
+    const objective = document.getElementById('trial-objective');
+    const progress = trialProgress(m);
+    objective.classList.toggle('hidden', !progress);
+    if (objective.textContent !== progress) objective.textContent = progress;
+    if (m.settings.hyperStrikes !== false && m.hype) {
       for (let t = 0; t <= 1; t++) {
         const val = Math.min(100, Math.floor(m.hype[t] || 0));
         const fill = document.getElementById(`hype-fill-${t}`);
@@ -10610,12 +11378,22 @@ class SuperKickKingdomApp {
 
   togglePause(forceState) {
     if (this.screen !== 'match') return;
-    this.paused = forceState !== undefined ? forceState : !this.paused;
-    document.getElementById('modal-pause').classList.toggle('hidden', !this.paused);
-    document.getElementById('controls-toast').style.opacity = this.paused ? '1' : '0.85';
+    const pause = forceState !== undefined ? forceState : !this.paused;
+    if (pause) {
+      if (!this.paused) this._openModal('modal-pause');
+    } else {
+      this._closeAllModals();
+      this.input.clearAll();
+      this.pendingInputs.clear();
+      this.accumulator = 0;
+    }
   }
 
   _handleMatchFinished(summary) {
+    if (summary.mode === 'practice') {
+      this._showScreen('menu');
+      return;
+    }
     this.lastSummary = summary;
     const headline = document.getElementById('results-headline');
     const scoreline = document.getElementById('results-scoreline');
@@ -10778,7 +11556,7 @@ class SuperKickKingdomApp {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td style="color:${pl.char.primary}; font-weight:800;">${pl.tag} — ${pl.char.name}</td>
-        <td><b>${pl.stats.goals}</b></td>
+        <td><b>${pl.stats.goals}</b>${pl.stats.ownGoals ? ` <span class="mini-pill" title="Own goals">${pl.stats.ownGoals} OG</span>` : ''}</td>
         <td>${pl.stats.hyperStrikes || 0}⚡ / ${pl.stats.powerShots}</td>
         <td>${pl.stats.saves} / ${pl.stats.parries || 0}🛡️</td>
         <td>${pl.stats.itemsUsed}</td>
@@ -10803,7 +11581,7 @@ class SuperKickKingdomApp {
     if (humans.some((p) => (p.stats.hyperStrikes || 0) >= 1)) this._unlockTrophy('hyper_unleashed');
     if (humans.some((p) => p.stats.saves >= 4)) this._unlockTrophy('brick_wall');
     if (humans.some((p) => p.stats.kos >= 5)) this._unlockTrophy('heavy_brawler');
-    if (summary.players.some((p) => p.team === 0 && (p.stats.comboPasses || 0) >= 1) && humans.length > 0) {
+    if (summary.players.some((p) => humans.some(human => human.team === p.team) && (p.stats.comboPasses || 0) >= 1)) {
       this._unlockTrophy('team_chemistry');
     }
     if (humans.some((p) => p.stats.itemsUsed >= 4)) this._unlockTrophy('item_chef');
@@ -10816,7 +11594,7 @@ class SuperKickKingdomApp {
       }
     }
 
-    if (summary.mode === '1v1_cpu' && this.settings.aiDifficulty === 'legend' && summary.winnerTeam === 0) {
+    if (summary.mode === '1v1_cpu' && summary.settings.aiDifficulty === 'legend' && summary.winnerTeam === 0) {
       this._unlockTrophy('legend_slayer');
     }
 
@@ -10825,7 +11603,7 @@ class SuperKickKingdomApp {
     if (this.save.wonCups.includes('haunted_cup')) this._unlockTrophy('cup_haunted');
     if (this.save.wonCups.includes('cosmic_cup')) this._unlockTrophy('cup_cosmic');
 
-    if ((summary.mode === '2v2' || (summary.mode === 'cup' && this.cupCoop)) && summary.winnerTeam === 0) {
+    if ((summary.mode === '2v2' || (summary.mode === 'cup' && this.cupCoop)) && humanWon) {
       this._unlockTrophy('coop_champ');
     }
 
@@ -10833,7 +11611,7 @@ class SuperKickKingdomApp {
     if (this.save.stats.keepUpBestTime >= 45) this._unlockTrophy('keepup_pro');
     if (this.save.stats.gauntletBestSaves >= 15) this._unlockTrophy('gauntlet_wall');
 
-    if (!isMini && (this.settings.activeMutators?.length || 0) >= 3) {
+    if (!isMini && (summary.settings.activeMutators?.length || 0) >= 3) {
       this._unlockTrophy('mutator_madness');
     }
 
@@ -10851,7 +11629,14 @@ class SuperKickKingdomApp {
     this.lastFrameTime = timestamp;
     const tSec = timestamp / 1000;
 
+    this.input._getGamepads();
+    const disconnected = this.input.disconnectedSlots.splice(0);
+    if (this.screen === 'match' && disconnected.some(slot => this.match?.players.some(player => !player.isAI && player.controlSlot === slot))) {
+      this.togglePause(true);
+      this._pushToast('Controller disconnected', 'Reconnect it or use the keyboard, then resume when you are ready.', '🎮');
+    }
     this._handleGlobalShortcuts();
+    this._updateControlPrompts();
 
     // Update Gamepad Indicator Pill
     this.input._getGamepads();
@@ -10871,10 +11656,7 @@ class SuperKickKingdomApp {
       if (this.screen === 'results') this._renderPodiumPuppets(tSec);
     } else if (this.screen === 'match' && this.match) {
       if (!this.paused) {
-        const inputs = this.match.players.map((pl) =>
-          pl.isAI ? this.ai.computeInput(pl, this.match, rawDt) : this.input.getPlayerInput(pl.slot)
-        );
-        this.match.update(rawDt, inputs);
+        this._stepMatch(rawDt);
         this._syncHUD();
 
         if (this.toastFadeTimer > 0) {
@@ -10891,16 +11673,110 @@ class SuperKickKingdomApp {
     requestAnimationFrame((ts) => this._loop(ts));
   }
 
+  _stepMatch(rawDt) {
+    const match = this.match;
+    if (!match || this.paused) return;
+    for (const player of match.players.filter(player => !player.isAI)) {
+      const current = this.input.getPlayerInput(player.controlSlot);
+      const pending = this.pendingInputs.get(player.controlSlot);
+      for (const key of INPUT_EDGES) current[key] ||= pending?.[key] || false;
+      this.pendingInputs.set(player.controlSlot, current);
+    }
+    this.accumulator += Math.min(0.05, Math.max(0, rawDt));
+    while (this.accumulator + 1e-9 >= FIXED_STEP && this.match === match && !this.paused) {
+      for (const entity of [match.courier, ...match.players, ...match.balls, ...match.shells, ...match.torpedoes, ...match.keepers, ...match.hounds, ...match.bananas, ...match.targets]) {
+        entity.previousX = entity.x;
+        entity.previousY = entity.y;
+      }
+      const inputs = match.players.map(player => player.isAI
+        ? this.ai.computeInput(player, match, FIXED_STEP)
+        : this.pendingInputs.get(player.controlSlot) || {});
+      const inHitstop = match.hitstopTimer > 0;
+      match.update(FIXED_STEP, inputs);
+      if (!inHitstop) {
+        for (const pending of this.pendingInputs.values()) for (const key of INPUT_EDGES) pending[key] = false;
+      }
+      this.accumulator = Math.max(0, this.accumulator - FIXED_STEP);
+      if (this.practice?.update()) {
+        this.audio.playCoachCue();
+        if (this.practice.complete) {
+          this.save.onboarding.completed = true;
+          this._persist();
+        }
+        this._renderPracticeCoach();
+      }
+    }
+  }
+
   _anyModalOpen() {
-    return Array.from(document.querySelectorAll('.modal-backdrop')).some(
-      (m) => !m.classList.contains('hidden') && m.id !== 'modal-pause'
-    );
+    return Boolean(this.modalStack?.length);
+  }
+
+  _handleMenuGamepad() {
+    const root = this.modalStack.length
+      ? document.getElementById(this.modalStack.at(-1).id)
+      : document.getElementById(`screen-${this.screen}`);
+    if (!root) return false;
+    const slot = Math.max(0, this.input.activeSlot);
+    const direction = this.input.getGamepadTapDirection(slot);
+    const elements = this._focusableElements(root);
+    if (!elements.length) return false;
+    let focused = root.contains(document.activeElement) ? document.activeElement : null;
+    if (direction.x && focused?.matches('select, input[type="range"]')) {
+      if (focused.tagName === 'SELECT') {
+        focused.selectedIndex = (focused.selectedIndex + direction.x + focused.options.length) % focused.options.length;
+      } else {
+        const step = Number(focused.step) || 0.05;
+        focused.value = String(Math.max(Number(focused.min), Math.min(Number(focused.max), Number(focused.value) + direction.x * step)));
+      }
+      focused.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    }
+    if (direction.x || direction.y) {
+      if (!focused) focused = elements[0];
+      else {
+        const origin = focused.getBoundingClientRect();
+        const cx = origin.x + origin.width / 2, cy = origin.y + origin.height / 2;
+        let best = null, bestScore = Infinity;
+        for (const candidate of elements) {
+          if (candidate === focused) continue;
+          const rect = candidate.getBoundingClientRect();
+          const dx = rect.x + rect.width / 2 - cx, dy = rect.y + rect.height / 2 - cy;
+          const forward = direction.x ? dx * direction.x : dy * direction.y;
+          const sideways = direction.x ? Math.abs(dy) : Math.abs(dx);
+          if (forward <= 4) continue;
+          const score = forward + sideways * 3;
+          if (score < bestScore) { best = candidate; bestScore = score; }
+        }
+        if (best) focused = best;
+      }
+      focused.focus({ preventScroll: true });
+      focused.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      this.audio.playHover();
+      return true;
+    }
+    const startPressed = this.input.wasStartJustPressed();
+    if (this.input.wasGamepadButtonJustPressed(slot, 0) || startPressed) {
+      const target = (startPressed ? root.querySelector('.kickoff-cta-btn:not(.hidden)') : focused) ||
+        root.querySelector('.quick-mode-btn, .kickoff-cta-btn:not(.hidden)') || elements[0];
+      if (target.matches('select, input[type="range"]')) target.focus();
+      else target.click();
+      return true;
+    }
+    return false;
   }
 
   _handleGlobalShortcuts() {
-    if (this.input.rebindingCallback) return;
+    if (this.input.rebindingCallback) {
+      if (this.input.wasGamepadButtonJustPressed(Math.max(0, this.input.activeSlot), 1)) {
+        this.input.cancelRebind();
+        this._renderRebindLists();
+      }
+      return;
+    }
 
-    if (this.input.wasKeyJustPressed('KeyM')) {
+    const humanSlots = this.match?.players.filter(player => !player.isAI).map(player => player.controlSlot) || [];
+    if (this.input.wasKeyJustPressed('KeyM') && !this.input.isBound('KeyM', humanSlots)) {
       this.audio.toggleMute();
       this._syncMuteButton();
       this._persist();
@@ -10911,27 +11787,29 @@ class SuperKickKingdomApp {
       this.input.wasKeyJustPressed('Enter');
     if (this.input.wasKeyJustPressed('F11') || isAltEnter) {
       if (this.touch) this.touch.toggleFullscreen();
+      this.input.keysDown.delete('Enter');
+      this.input.keysJustPressed.delete('Enter');
+      return;
     }
 
     if (this._anyModalOpen()) {
       if (
         this.input.wasKeyJustPressed('Escape') ||
-        this.input.wasStartJustPressed() ||
-        this.input.wasGamepadButtonJustPressed(0, 1) ||
-        this.input.wasGamepadButtonJustPressed(0, 8)
+        this.input.wasGamepadButtonJustPressed(Math.max(0, this.input.activeSlot), 1) ||
+        this.input.wasGamepadButtonJustPressed(Math.max(0, this.input.activeSlot), 8)
       ) {
         this.audio.playBack();
-        document.querySelectorAll('.modal-backdrop').forEach((m) => {
-          if (m.id !== 'modal-pause') m.classList.add('hidden');
-        });
-      }
+        this._closeModal(this.modalStack.at(-1).id);
+      } else this._handleMenuGamepad();
       return;
     }
+    if (this.input.isEditingField()) return;
+    if (this.screen !== 'match' && this._handleMenuGamepad()) return;
 
     if (this.screen === 'match') {
       if (
         this.input.wasKeyJustPressed('Escape') ||
-        this.input.wasKeyJustPressed('KeyP') ||
+        (this.input.wasKeyJustPressed('KeyP') && !this.input.isBound('KeyP', humanSlots)) ||
         this.input.wasStartJustPressed()
       ) {
         this.togglePause();
@@ -10978,8 +11856,8 @@ class SuperKickKingdomApp {
       }
 
       if (
-        this.input.wasKeyJustPressed('Enter') ||
-        this.input.wasKeyJustPressed('Space') ||
+        ((this.input.wasKeyJustPressed('Enter') || this.input.wasKeyJustPressed('Space')) &&
+          !document.activeElement?.matches('button')) ||
         this.input.wasStartJustPressed() ||
         this.input.wasGamepadButtonJustPressed(0, 0)
       ) {
@@ -10996,7 +11874,7 @@ class SuperKickKingdomApp {
     } else if (this.screen === 'results') {
       if (
         this.input.wasKeyJustPressed('KeyR') ||
-        this.input.wasKeyJustPressed('Enter') ||
+        (this.input.wasKeyJustPressed('Enter') && !document.activeElement?.matches('button')) ||
         this.input.wasStartJustPressed() ||
         this.input.wasGamepadButtonJustPressed(0, 0)
       ) {
@@ -11021,6 +11899,7 @@ class SuperKickKingdomApp {
   }
 
   _renderBackdropCanvas(tSec, dt) {
+    if (this.reducedMotion) { tSec = 0; dt = 0; }
     const ctx = this.ctx;
     ctx.clearRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
 
@@ -11031,7 +11910,7 @@ class SuperKickKingdomApp {
         : this.art.images.title_bg;
 
     if (img) {
-      const zoom = 1.03 + Math.sin(tSec * 0.4) * 0.015;
+      const zoom = this.reducedMotion ? 1 : 1.03 + Math.sin(tSec * 0.4) * 0.015;
       const w = VIRTUAL_WIDTH * zoom;
       const h = VIRTUAL_HEIGHT * zoom;
       ctx.drawImage(img, (VIRTUAL_WIDTH - w) / 2, (VIRTUAL_HEIGHT - h) / 2, w, h);
@@ -11062,6 +11941,7 @@ class SuperKickKingdomApp {
   }
 
   _renderSelectPuppets(tSec, dt) {
+    if (this.reducedMotion) tSec = 0;
     if (this.previewKickTimer0 > 0) this.previewKickTimer0 = Math.max(0, this.previewKickTimer0 - dt);
     if (this.previewKickTimer1 > 0) this.previewKickTimer1 = Math.max(0, this.previewKickTimer1 - dt);
 
@@ -11077,7 +11957,7 @@ class SuperKickKingdomApp {
 
       // Mathematical auto-framing: guarantees full visibility from cap/horns to cleats
       // with at least 22px headroom and zero clipping!
-      const minHeadroom = 22;
+      const minHeadroom = 40;
       const maxSafeScaleH = (pedestalTurfY - minHeadroom) / (metrics.drawSize * metrics.footY);
       const maxSafeScaleW = 216 / metrics.drawSize;
       const targetScale = 0.88 * ch.stats.size;
@@ -11181,15 +12061,17 @@ class SuperKickKingdomApp {
 
     list.forEach((pl, i) => {
       const xPos = list.length === 1 ? 260 : i === 0 ? 208 : 312;
-      const hop = Math.abs(Math.sin(tSec * 6.5 + i * 0.9)) * 20;
+      const hop = this.reducedMotion ? 0 : Math.abs(Math.sin(tSec * 4 + i * 0.9)) * 9;
+      const metrics = CHAR_SPRITE_METRICS[pl.char.id];
+      const actualScale = Math.min(0.85, 118 / (metrics.drawSize * metrics.footY), 115 / metrics.drawSize);
       const dummy = {
         x: xPos,
-        y: 94 - hop,
+        y: 144 - 52 * actualScale - hop,
         vx: 0,
         vy: 0,
         facing: i === 0 ? 1 : -1,
         char: pl.char,
-        visualScale: 1.08,
+        visualScale: actualScale / pl.char.stats.size,
         squashX: 1,
         squashY: 1,
         onGround: hop < 2,
@@ -11210,6 +12092,14 @@ class SuperKickKingdomApp {
   _renderMatchCanvas() {
     const ctx = this.ctx;
     const m = this.match;
+    const alpha = this.paused ? 1 : Math.min(1, this.accumulator / FIXED_STEP);
+    const interpolate = entity => {
+      if (!Number.isFinite(entity.previousX) || Math.hypot(entity.x - entity.previousX, entity.y - entity.previousY) > 250) return entity;
+      return { ...entity, x: entity.previousX + (entity.x - entity.previousX) * alpha,
+        y: entity.previousY + (entity.y - entity.previousY) * alpha };
+    };
+    const scene = { ...m, players: m.players.map(interpolate), balls: m.balls.map(interpolate) };
+    const visualTime = this.reducedMotion ? 0 : m.time;
     ctx.save();
     ctx.clearRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
 
@@ -11219,68 +12109,69 @@ class SuperKickKingdomApp {
     ctx.translate(-m.cameraFocusX, -m.cameraFocusY);
 
     // 1. Lush Hand-Painted Illustrated Stadium Background (All 7 Biomes)
-    this.art.drawArenaBackground(ctx, m.arena, m.time);
+    this.art.drawArenaBackground(ctx, m.arena, visualTime);
 
     // 2. Sky-Cloud Courier & Item Bubble
-    this.art.drawCloudCourier(ctx, m.courier, m.time);
+    this.art.drawCloudCourier(ctx, interpolate(m.courier), visualTime);
 
     // 3. Target Blitz Bullseyes
     for (const tg of m.targets) {
-      this.art.drawTargetEntity(ctx, tg, m.time);
+      this.art.drawTargetEntity(ctx, interpolate(tg), visualTime);
     }
 
     // 4. Shroom GoalKeepers
     for (const kp of m.keepers) {
-      this.art.drawGoalKeeperEntity(ctx, kp, m.time);
+      this.art.drawGoalKeeperEntity(ctx, interpolate(kp), visualTime);
     }
 
     // 5. Foreground Stadium Architecture, Turf, Molten/Glacier Sheen, Goal Nets & Pedestals
-    this.art.drawArenaForeground(ctx, m.arena, m, m.time);
+    this.art.drawArenaForeground(ctx, m.arena, scene, visualTime);
 
     // 6. Interactive Stage Hazards, Pinball Bumpers & Goalie Gauntlet Striker-Cannon
-    this.art.drawStageHazards(ctx, m, m.time);
+    this.art.drawStageHazards(ctx, scene, visualTime);
 
     // 7. Chain-Hounds, Banana Slicks, Ricochet Shells & Cannon Torpedoes
     for (const hd of m.hounds) {
-      this.art.drawChainHoundEntity(ctx, hd, m.time);
+      this.art.drawChainHoundEntity(ctx, interpolate(hd), visualTime);
     }
     for (const bn of m.bananas) {
-      this.art.drawBananaEntity(ctx, bn, m.time);
+      this.art.drawBananaEntity(ctx, interpolate(bn), visualTime);
     }
     for (const sh of m.shells) {
-      this.art.drawShellEntity(ctx, sh, m.time);
+      this.art.drawShellEntity(ctx, interpolate(sh), visualTime);
     }
     for (const tp of m.torpedoes) {
-      this.art.drawTorpedoEntity(ctx, tp, m.time);
+      this.art.drawTorpedoEntity(ctx, interpolate(tp), visualTime);
     }
 
     // 8. Articulated 2D Character Puppets (12 Strikers + Shadow Clones)
-    for (const pl of m.players) {
-      this.art.drawCharacterPuppet(ctx, pl, m.balls, m.time);
+    for (const pl of scene.players) {
+      this.art.drawCharacterPuppet(ctx, pl, scene.balls, visualTime);
     }
 
     // 9. Soccer Balls (6 Skins, Rugby Egg-Ball, Magnus Spin Trails, Combo Voltage & Vanish Shot)
     const isRugby = m.hasMutator('rugbyBall');
-    for (const b of m.balls) {
-      this.art.drawBall(ctx, b, m.arena.pitchFloorY, m.time, this.settings.equippedBallSkin, isRugby);
+    for (const b of scene.balls) {
+      const floor = b.x < m.arena.pitchLeftX || b.x > m.arena.pitchRightX ? m.arena.goalFloorY : m.arena.pitchFloorY;
+      this.art.drawBall(ctx, b, floor, visualTime, this.settings.equippedBallSkin, isRugby);
     }
 
     // 10. Particles, Custom Goal Explosions, Shockwaves & Floating Callouts
     this.art.drawParticles(ctx, m.particles, m.shockwaves);
 
     // 10b. Dynamic Additive Scene Lighting & Bloom Pass!
-    this.art.drawDynamicLighting(ctx, m, m.time);
+    if (!this.reducedMotion) this.art.drawDynamicLighting(ctx, scene, visualTime);
 
     ctx.restore();
 
     // 11. Signature Hyper-Strike Anime Cut-In Banner!
-    this.art.drawHyperCutIn(ctx, m.hyperCutIn, m.time);
+    this.art.drawHyperCutIn(ctx, m.hyperCutIn, visualTime);
 
     // 12. Dramatic Center-Screen Arcade Banner (3..2..1, GOOOAL!!, SUDDEN DEATH!)
     if (m.bannerTimer > 0 && m.bannerText) {
       ctx.save();
       const pop = Math.min(1, m.bannerTimer * 4.5);
-      const bounceScale = 0.85 + Math.sin(pop * Math.PI * 0.65) * 0.22;
+      const bounceScale = this.reducedMotion ? 1 : 0.85 + Math.sin(pop * Math.PI * 0.65) * 0.22;
       ctx.translate(VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT * 0.4);
       ctx.scale(bounceScale, bounceScale);
 

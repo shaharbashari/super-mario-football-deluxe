@@ -52,6 +52,14 @@ export class InputManager {
     this.prevPadAxes = new Map();
     this.rebindingCallback = null;
     this.connectedGamepads = 0;
+    this.padSlots = [null, null, null, null];
+    this.disconnectedSlots = [];
+    this.activeSource = 'keyboard';
+    this.activeSlot = 0;
+    this.gameplayActive = false;
+    this.touchDirections = new Set();
+    this.touchVector = { x: 0, y: 0 };
+    this.touchJump = false;
 
     // Mobile / Tablet Touch Controls State for P1
     this.touchState = {
@@ -64,6 +72,7 @@ export class InputManager {
       downReleased: false,
       jumpPressed: false,
       jumpReleased: false,
+      jumpHeld: false,
       kickDown: false,
       kickPressed: false,
       kickReleased: false,
@@ -77,23 +86,23 @@ export class InputManager {
       window.addEventListener('keydown', (e) => {
         if (this.rebindingCallback) {
           e.preventDefault();
-          if (e.code !== 'Escape') {
-            this.rebindingCallback(e.code);
-          } else {
-            this.rebindingCallback(null);
-          }
+          const callback = this.rebindingCallback;
           this.rebindingCallback = null;
+          if (e.code !== 'Escape') {
+            callback(e.code);
+          } else {
+            callback(null);
+          }
           return;
         }
 
-        // Prevent arrow keys / space from scrolling page during gameplay
-        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
-          if (document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'SELECT') {
-            e.preventDefault();
-          }
-        }
-
-        if (!this.keysDown.has(e.code)) {
+        if (this.isEditingField() && !['Escape', 'F11'].includes(e.code) && !(e.altKey && e.code === 'Enter')) return;
+        this.activeSource = 'keyboard';
+        const owner = [0, 1, 2, 3].find(slot => this.isBound(e.code, [slot]));
+        if (owner !== undefined) this.activeSlot = owner;
+        if ((this.gameplayActive && this.isBound(e.code)) ||
+            e.code === 'F11' || (e.altKey && e.code === 'Enter')) e.preventDefault();
+        if (!e.repeat && !this.keysDown.has(e.code)) {
           this.keysJustPressed.add(e.code);
         }
         this.keysDown.add(e.code);
@@ -105,8 +114,11 @@ export class InputManager {
       });
 
       window.addEventListener('blur', () => {
-        this.keysDown.clear();
+        this.clearAll();
       });
+      window.addEventListener('pointerdown', event => {
+        if (event.pointerType === 'touch') this.activeSource = 'touch';
+      }, { passive: true });
     }
   }
 
@@ -116,6 +128,45 @@ export class InputManager {
 
   cancelRebind() {
     this.rebindingCallback = null;
+  }
+
+  isEditingField() {
+    return typeof document !== 'undefined' &&
+      Boolean(document.activeElement?.closest('input, select, textarea, [contenteditable="true"]'));
+  }
+
+  clearAll() {
+    this.keysDown.clear();
+    this.keysJustPressed.clear();
+    this.keysJustReleased.clear();
+    this.clearTouch();
+    this._snapshotGamepads();
+  }
+
+  clearTouch() {
+    this.touchDirections.clear();
+    this.touchVector = { x: 0, y: 0 };
+    this.touchJump = false;
+    for (const key of Object.keys(this.touchState)) this.touchState[key] = false;
+  }
+
+  bindingConflict(playerKey, action, code) {
+    if (['Escape', 'Tab', 'F11', 'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight'].includes(code)) {
+      return 'That key is reserved for navigation or fullscreen.';
+    }
+    for (const [slot, actions] of Object.entries(this.controls)) {
+      for (const [name, codes] of Object.entries(actions)) {
+        if ((slot !== playerKey || name !== action) && codes.includes(code)) {
+          return `${formatKeyCode(code)} is already assigned to ${slot.toUpperCase()} ${name}.`;
+        }
+      }
+    }
+    return null;
+  }
+
+  isBound(code, slots = [0, 1, 2, 3]) {
+    return slots.some(slot => Object.values(this.controls[`p${slot + 1}`] || {})
+      .some(codes => codes.includes(code)));
   }
 
   wasKeyJustPressed(code) {
@@ -141,39 +192,19 @@ export class InputManager {
   }
 
   setTouchDirection(dir, isDown) {
-    if (dir === 'left') this.touchState.left = isDown;
-    if (dir === 'right') this.touchState.right = isDown;
-    if (dir === 'up') {
-      if (isDown && !this.touchState.up) {
-        this.touchState.upPressed = true;
-        this.touchState.jumpPressed = true;
-      }
-      if (!isDown && this.touchState.up) {
-        this.touchState.jumpReleased = true;
-      }
-      this.touchState.up = isDown;
-    }
-    if (dir === 'down') {
-      if (isDown && !this.touchState.down) {
-        this.touchState.downPressed = true; // Air flick -> Ground Pound!
-      }
-      if (!isDown && this.touchState.down) {
-        this.touchState.downReleased = true;
-      }
-      this.touchState.down = isDown;
-    }
+    if (isDown) this.activeSource = 'touch';
+    if (dir === 'up' && isDown && !this.touchDirections.has(dir)) this.touchState.jumpPressed = true;
+    if (isDown) this.touchDirections.add(dir);
+    else this.touchDirections.delete(dir);
+    this._syncTouchDirections();
   }
 
   setTouchAction(action, isDown) {
+    if (isDown) this.activeSource = 'touch';
     if (action === 'jump') {
-      if (isDown && !this.touchState.up) {
-        this.touchState.jumpPressed = true;
-        this.touchState.upPressed = true;
-      }
-      if (!isDown && this.touchState.up) {
-        this.touchState.jumpReleased = true;
-      }
-      this.touchState.up = isDown;
+      if (isDown && !this.touchJump) this.touchState.jumpPressed = true;
+      this.touchJump = isDown;
+      this._syncTouchDirections();
     } else if (action === 'strike') {
       if (isDown && !this.touchState.kickDown) this.touchState.kickPressed = true;
       if (!isDown && this.touchState.kickDown) this.touchState.kickReleased = true;
@@ -189,56 +220,65 @@ export class InputManager {
   }
 
   setTouchVector(x, y) {
-    const deadzone = 0.22;
-    const prevDown = this.touchState.down;
-    const prevUp = this.touchState.up;
+    if (Math.hypot(x, y) > 0.22) this.activeSource = 'touch';
+    if (y < -0.32 && this.touchVector.y >= -0.32) this.touchState.jumpPressed = true;
+    this.touchVector = { x, y };
+    this._syncTouchDirections();
+  }
 
-    this.touchState.left = x < -deadzone;
-    this.touchState.right = x > deadzone;
-    this.touchState.up = y < -0.32;
-    this.touchState.down = y > 0.35;
-
-    if (this.touchState.up && !prevUp) {
-      this.touchState.upPressed = true;
-      this.touchState.jumpPressed = true;
-    }
-    if (!this.touchState.up && prevUp) {
-      this.touchState.jumpReleased = true;
-    }
-    if (this.touchState.down && !prevDown) {
-      this.touchState.downPressed = true;
-    }
-    if (!this.touchState.down && prevDown) {
-      this.touchState.downReleased = true;
-    }
+  _syncTouchDirections() {
+    const state = this.touchState;
+    const wasUp = state.up, wasDown = state.down, wasJump = state.jumpHeld;
+    state.left = this.touchDirections.has('left') || this.touchVector.x < -0.22;
+    state.right = this.touchDirections.has('right') || this.touchVector.x > 0.22;
+    state.up = this.touchDirections.has('up') || this.touchVector.y < -0.32;
+    state.down = this.touchDirections.has('down') || this.touchVector.y > 0.35;
+    state.jumpHeld = state.up || this.touchJump;
+    if (state.up && !wasUp) state.upPressed = true;
+    if (!state.jumpHeld && wasJump) state.jumpReleased = true;
+    if (state.down && !wasDown) state.downPressed = true;
+    if (!state.down && wasDown) state.downReleased = true;
   }
 
   _getGamepads() {
-    if (typeof navigator === 'undefined' || !navigator.getGamepads) return [];
-    const raw = navigator.getGamepads();
-    if (!raw) return [];
-    const list = [];
-    for (let i = 0; i < raw.length; i++) {
-      if (raw[i] && raw[i].connected) list.push(raw[i]);
+    let raw = [];
+    if (typeof navigator !== 'undefined' && navigator.getGamepads) {
+      try {
+        raw = navigator.getGamepads() || [];
+      } catch (error) {
+        if (error.name !== 'SecurityError') throw error;
+        if (!this.padAccessWarning) console.warn('Gamepad access is unavailable in this browser context.', error);
+        this.padAccessWarning = true;
+      }
     }
-    this.connectedGamepads = list.length;
+    const list = Array.from(raw).filter(pad => pad?.connected && (!pad.mapping || pad.mapping === 'standard'));
+    for (let slot = 0; slot < this.padSlots.length; slot++) {
+      const index = this.padSlots[slot];
+      if (index !== null && !list.some(pad => pad.index === index)) {
+        this.padSlots[slot] = null;
+        this.prevPadButtons.delete(index);
+        this.prevPadAxes.delete(index);
+        this.disconnectedSlots.push(slot);
+      }
+    }
+    for (const pad of list) {
+      if (!this.padSlots.includes(pad.index)) {
+        const free = this.padSlots.indexOf(null);
+        if (free !== -1) this.padSlots[free] = pad.index;
+      }
+      const changed = pad.buttons.some((_, i) => this._padJustPressed(pad, i)) ||
+        [0, 1].some(axis => this._padAxisCrossed(pad, axis, 0.38, 1) || this._padAxisCrossed(pad, axis, -0.38, -1));
+      if (changed) {
+        this.activeSource = 'gamepad';
+        this.activeSlot = this.padSlots.indexOf(pad.index);
+      }
+    }
+    this.connectedGamepads = Math.min(4, list.length);
     return list;
   }
 
   getGamepad(slotIndex) {
-    if (typeof navigator === 'undefined' || !navigator.getGamepads) return null;
-    const raw = navigator.getGamepads();
-    if (!raw) return null;
-    // Prefer direct port index if valid and connected
-    if (raw[slotIndex] && raw[slotIndex].connected) {
-      return raw[slotIndex];
-    }
-    // Fall back to active connected list
-    const active = [];
-    for (let i = 0; i < raw.length; i++) {
-      if (raw[i] && raw[i].connected) active.push(raw[i]);
-    }
-    return active[slotIndex] || null;
+    return this._getGamepads().find(pad => pad.index === this.padSlots[slotIndex]) || null;
   }
 
   _snapshotGamepads() {
@@ -289,7 +329,7 @@ export class InputManager {
   wasStartJustPressed() {
     const pads = this._getGamepads();
     for (const pad of pads) {
-      if (this._padJustPressed(pad, XINPUT_BUTTONS.START) || this._padJustPressed(pad, XINPUT_BUTTONS.BACK)) {
+      if (this._padJustPressed(pad, XINPUT_BUTTONS.START)) {
         return true;
       }
     }
@@ -343,6 +383,7 @@ export class InputManager {
 
     let jumpPressed = keySlotMap ? checkPressed(keySlotMap.up) : false;
     let jumpReleased = keySlotMap ? checkReleased(keySlotMap.up) : false;
+    let jumpHeld = up;
 
     let kickDown = keySlotMap ? checkDown(keySlotMap.kick) : false;
     let kickPressed = keySlotMap ? checkPressed(keySlotMap.kick) : false;
@@ -389,6 +430,7 @@ export class InputManager {
       if (this._padJustReleased(pad, XINPUT_BUTTONS.A) || this._padJustReleased(pad, XINPUT_BUTTONS.UP)) {
         jumpReleased = true;
       }
+      jumpHeld ||= this._padBtnIsDown(pad, XINPUT_BUTTONS.A) || dUp;
 
       // Button 2 (X / Square): Strike & Charge Kick
       if (this._padBtnIsDown(pad, XINPUT_BUTTONS.X)) kickDown = true;
@@ -430,6 +472,7 @@ export class InputManager {
       if (this.touchState.downReleased) downReleased = true;
       if (this.touchState.jumpPressed) jumpPressed = true;
       if (this.touchState.jumpReleased) jumpReleased = true;
+      if (this.touchState.jumpHeld) jumpHeld = true;
       if (this.touchState.kickDown) kickDown = true;
       if (this.touchState.kickPressed) kickPressed = true;
       if (this.touchState.kickReleased) kickReleased = true;
@@ -446,12 +489,13 @@ export class InputManager {
       down,
       upPressed,
       downPressed,
-      downReleased,
+      downReleased: downReleased && !down,
       jumpPressed,
-      jumpReleased,
+      jumpReleased: jumpReleased && !jumpHeld,
+      jumpHeld,
       kickDown,
       kickPressed,
-      kickReleased,
+      kickReleased: kickReleased && !kickDown,
       lobDown,
       lobPressed,
       itemPressed,

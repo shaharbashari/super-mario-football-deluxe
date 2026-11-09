@@ -1,0 +1,20 @@
+{
+  "name": "super-mario-football-deluxe",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Offline-first local arcade football",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node tools/serve.mjs",
+    "build": "node build.mjs",
+    "build:check": "node build.mjs --check",
+    "test": "node tools/test.mjs",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0"
+  }
+}

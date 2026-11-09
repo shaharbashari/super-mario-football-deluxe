@@ -26,6 +26,8 @@ export class TouchController {
     this.dismissedPortrait = false;
     this.stickPointerId = null;
     this.stickCenter = null;
+    this.pointerBindings = new Map();
+    this.nativeFullscreen = false;
 
     if (typeof document !== 'undefined' && (this.isTouch || this.isMobile)) {
       document.body.classList.add('is-touch-device');
@@ -34,6 +36,7 @@ export class TouchController {
     if (typeof window !== 'undefined') {
       this._bindOrientationEvents();
       this._bindTouchButtons();
+      window.addEventListener('blur', () => this.resetPointers());
       this.checkOrientation();
     }
   }
@@ -41,7 +44,7 @@ export class TouchController {
   _bindOrientationEvents() {
     window.addEventListener('resize', () => this.checkOrientation());
     window.addEventListener('orientationchange', () => this.checkOrientation());
-    if (screen && screen.orientation) {
+    if (typeof screen !== 'undefined' && screen.orientation?.addEventListener) {
       screen.orientation.addEventListener('change', () => this.checkOrientation());
     }
 
@@ -99,6 +102,7 @@ export class TouchController {
     const el = document.documentElement;
 
     if (!isFull) {
+      let native = false;
       try {
         const req =
           el.requestFullscreen ||
@@ -107,21 +111,22 @@ export class TouchController {
           el.msRequestFullscreen;
         if (req) {
           await req.call(el);
+          native = Boolean(doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement);
         }
       } catch (err) {
         console.warn('Native fullscreen request blocked:', err);
       }
 
-      try {
-        if (screen.orientation && screen.orientation.lock) {
-          await screen.orientation.lock('landscape').catch(() => {});
+      if (native && typeof screen !== 'undefined' && screen.orientation?.lock) {
+        try {
+          await screen.orientation.lock('landscape');
+        } catch (error) {
+          console.info('Orientation lock is not available; rotate the device manually.', error.message);
         }
-      } catch {}
-
-      // Pseudo-fullscreen fallback for iOS Safari
-      document.body.classList.add('fullscreen-mode');
-      if (typeof window !== 'undefined') {
-        window.scrollTo(0, 1);
+      }
+      document.body.classList.toggle('fullscreen-mode', !native);
+      if (!native) {
+        this.app?._pushToast('Expanded view', 'Native fullscreen is unavailable in this browser. You can still play here.', '↗');
       }
     } else {
       try {
@@ -137,6 +142,7 @@ export class TouchController {
         console.warn('Native exit fullscreen failed:', err);
       }
       document.body.classList.remove('fullscreen-mode');
+      if (typeof screen !== 'undefined' && screen.orientation?.unlock) screen.orientation.unlock();
     }
 
     this._updateFullscreenUI();
@@ -144,11 +150,19 @@ export class TouchController {
 
   _updateFullscreenUI() {
     if (typeof document === 'undefined') return;
+    const native = Boolean(document.fullscreenElement || document.webkitFullscreenElement ||
+      document.mozFullScreenElement || document.msFullscreenElement);
+    if (this.nativeFullscreen && !native) {
+      document.body.classList.remove('fullscreen-mode');
+      if (typeof screen !== 'undefined' && screen.orientation?.unlock) screen.orientation.unlock();
+    }
+    this.nativeFullscreen = native;
     const isFull = this.isFullscreen();
     const buttons = document.querySelectorAll('.fullscreen-toggle-btn, #btn-fullscreen');
     buttons.forEach((btn) => {
       btn.textContent = isFull ? '🗗 WINDOW' : '⛶ FULLSCREEN';
       btn.classList.toggle('active', isFull);
+      btn.setAttribute('aria-pressed', String(isFull));
     });
   }
 
@@ -163,6 +177,7 @@ export class TouchController {
     // Show rotate overlay only on mobile/touch devices when in portrait orientation
     if (this.isMobile && isPortrait && !this.dismissedPortrait) {
       overlay.classList.remove('hidden');
+      if (this.app?.screen === 'match') this.app.togglePause(true);
     } else {
       overlay.classList.add('hidden');
       if (!isPortrait) {
@@ -181,26 +196,25 @@ export class TouchController {
     const bindBtn = (id, onDown, onUp) => {
       const el = document.getElementById(id);
       if (!el) return;
+      const pointers = new Set();
+      this.pointerBindings.set(el, pointers);
 
       const handleDown = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        try {
-          if (el.setPointerCapture) el.setPointerCapture(e.pointerId);
-        } catch {}
+        if (pointers.has(e.pointerId)) return;
+        if (e.isTrusted && el.setPointerCapture) el.setPointerCapture(e.pointerId);
+        const wasHeld = pointers.size > 0;
+        pointers.add(e.pointerId);
         el.classList.add('active');
-        if (navigator.vibrate) {
-          try { navigator.vibrate(12); } catch {}
-        }
-        onDown();
+        if (!wasHeld) onDown();
       };
 
       const handleUp = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        try {
-          if (el.releasePointerCapture) el.releasePointerCapture(e.pointerId);
-        } catch {}
+        if (!pointers.delete(e.pointerId) || pointers.size) return;
+        if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId);
         el.classList.remove('active');
         onUp();
       };
@@ -208,6 +222,7 @@ export class TouchController {
       el.addEventListener('pointerdown', handleDown, { passive: false });
       el.addEventListener('pointerup', handleUp, { passive: false });
       el.addEventListener('pointercancel', handleUp, { passive: false });
+      el.addEventListener('lostpointercapture', handleUp);
     };
 
     // Right Action Cluster
@@ -257,9 +272,7 @@ export class TouchController {
       touchPause.addEventListener('pointerdown', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (this.app && typeof this.app._togglePause === 'function') {
-          this.app._togglePause();
-        }
+        this.app?.togglePause();
       });
     }
 
@@ -272,8 +285,10 @@ export class TouchController {
         'pointerdown',
         (e) => {
           if (e.target.closest('.dpad-btn')) return; // Allow direct d-pad taps
+          if (this.stickPointerId !== null) return;
           e.preventDefault();
           this.stickPointerId = e.pointerId;
+          if (e.isTrusted && stickZone.setPointerCapture) stickZone.setPointerCapture(e.pointerId);
           const rect = stickZone.getBoundingClientRect();
           this.stickCenter = {
             x: rect.left + rect.width / 2,
@@ -306,6 +321,7 @@ export class TouchController {
 
       stickZone.addEventListener('pointerup', releaseStick, { passive: false });
       stickZone.addEventListener('pointercancel', releaseStick, { passive: false });
+      stickZone.addEventListener('lostpointercapture', releaseStick);
     }
   }
 
@@ -314,7 +330,8 @@ export class TouchController {
     const dx = clientX - this.stickCenter.x;
     const dy = clientY - this.stickCenter.y;
     const dist = Math.hypot(dx, dy);
-    const maxRadius = 55;
+    const zone = document.getElementById('touch-stick-zone');
+    const maxRadius = Math.max(24, (zone?.getBoundingClientRect().width || 150) * 0.34);
     const normDist = Math.min(1, dist / maxRadius);
     const normX = dist > 0 ? (dx / dist) * normDist : 0;
     const normY = dist > 0 ? (dy / dist) * normDist : 0;
@@ -329,24 +346,48 @@ export class TouchController {
   }
 
   updateVisibility(currentScreen = this.app?.screen, touchSetting = this.app?.settings?.touchControls || 'auto') {
+    if (typeof document === 'undefined') return;
     const layer = document.getElementById('touch-controls');
     if (!layer) return;
 
     let shouldShow = false;
-    if (currentScreen === 'match') {
+    if (currentScreen === 'match' && !this.app?.paused && !this.app?._anyModalOpen?.()) {
       if (touchSetting === 'on') {
         shouldShow = true;
       } else if (touchSetting === 'off') {
         shouldShow = false;
       } else {
         // 'auto': Show if touch/mobile device
-        shouldShow = this.isTouch;
+        shouldShow = this.isTouch && this.input.activeSource === 'touch';
       }
     }
 
+    if (!shouldShow) this.resetPointers();
     layer.classList.toggle('hidden', !shouldShow);
     if (typeof document !== 'undefined') {
       document.body.classList.toggle('is-touch-device', shouldShow || this.isTouch || this.isMobile);
+      document.body.classList.toggle('touch-controls-visible', shouldShow);
+    }
+  }
+
+  resetPointers() {
+    const stickId = this.stickPointerId;
+    this.stickPointerId = null;
+    this.stickCenter = null;
+    this.input.clearTouch();
+    for (const [element, pointers] of this.pointerBindings) {
+      const captured = [...pointers];
+      pointers.clear();
+      element.classList.remove('active');
+      for (const id of captured) {
+        if (element.hasPointerCapture?.(id)) element.releasePointerCapture(id);
+      }
+    }
+    if (typeof document !== 'undefined') {
+      const zone = document.getElementById('touch-stick-zone');
+      if (stickId !== null && zone?.hasPointerCapture?.(stickId)) zone.releasePointerCapture(stickId);
+      const nub = document.getElementById('touch-stick-nub');
+      if (nub) nub.style.transform = 'translate(-50%, -50%)';
     }
   }
 }

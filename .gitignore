@@ -16,3 +16,7 @@ verify_atlas_borders
 
 # Temp & logs
 *.log
+node_modules/
+test-results/
+playwright-report/
+__pycache__/

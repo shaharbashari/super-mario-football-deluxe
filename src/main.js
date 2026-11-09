@@ -1,6 +1,4 @@
-// Super Kick Kingdom 2.0 (Deluxe Edition) — Main Game Controller, UI State Machine & Render Loop
-// Wires 12 Strikers (+3 Kits), 7 Hazard Arenas, 18 Items, 7 Mutators, 4 Cups (1P/Co-op),
-// Party Knockout Tournament, 3 Arcade Minigames, Locker Room, Star-Coins & 24 Trophies!
+// App lifecycle, accessible menus, local-player input, coaching and the fixed-step render loop.
 
 import {
   VIRTUAL_WIDTH,
@@ -27,18 +25,41 @@ import { ArtRenderer, CHAR_SPRITE_METRICS } from './art.js';
 import { AIController } from './ai.js';
 import { MatchSimulation } from './physics.js';
 import { TouchController } from './touch.js';
+import { MODE_BRIEFINGS, ARENA_GUIDES, controlHints, PracticeCoach, PRACTICE_STEPS, trialProgress } from './coach.js';
+
+const INPUT_EDGES = ['upPressed', 'downPressed', 'downReleased', 'jumpPressed', 'jumpReleased',
+  'kickPressed', 'kickReleased', 'lobPressed', 'dashPressed', 'itemPressed'];
+const FIXED_STEP = 1 / 120;
 
 export class SuperKickKingdomApp {
   constructor() {
-    this.save = loadSaveData();
+    this.startupWarning = '';
+    this.save = loadSaveData(message => { this.startupWarning = message; });
     this.settings = this.save.settings;
     this.controls = this.save.controls;
 
     this.audio = new AudioEngine(this.settings);
+    this.audio.onError = message => this._pushToast('Sound unavailable', message, '!');
     this.input = new InputManager(this.controls);
     this.touch = new TouchController(this.input, this);
     this.art = new ArtRenderer();
     this.ai = new AIController();
+    this.modalStack = [];
+    this.dialogResume = false;
+    this.accumulator = 0;
+    this.pendingInputs = new Map();
+    this.matchToken = 0;
+    this.practice = null;
+    this.lastControlSignature = '';
+    if (this.touch.isMobile) this.input.activeSource = 'touch';
+    this.art.onAssetStatus = (pending, failures) => {
+      const status = document.getElementById('asset-status');
+      status.classList.toggle('hidden', pending === 0 && failures.length === 0);
+      status.classList.toggle('error', failures.length > 0);
+      status.textContent = failures.length ? `Could not load ${failures.join(', ')}. Reload to retry.`
+        : `Preparing the stadium · ${pending} assets remaining`;
+    };
+    this.art.onAssetsReady = () => this._renderCodex();
 
     this.canvas = document.getElementById('game-canvas');
     this.ctx = this.canvas.getContext('2d');
@@ -109,6 +130,18 @@ export class SuperKickKingdomApp {
     this._renderMutatorsGrid();
     this._syncMenuBadges();
     this._syncMuteButton();
+    this._applyPreferences();
+    this._updateControlPrompts();
+    if (this.startupWarning) this._pushToast('Save recovery', this.startupWarning, '!');
+    window.addEventListener('blur', () => {
+      if (this.screen === 'match') this.togglePause(true);
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && this.screen === 'match') this.togglePause(true);
+      this.audio.setPaused(document.hidden || this.paused);
+    });
+    window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => this._applyPreferences());
+    document.addEventListener('keydown', event => this._trapDialogFocus(event));
 
     this.lastFrameTime = performance.now();
     requestAnimationFrame((ts) => this._loop(ts));
@@ -117,12 +150,18 @@ export class SuperKickKingdomApp {
   _persist() {
     this.save.settings = this.settings;
     this.save.controls = this.controls;
-    saveData(this.save);
+    saveData(this.save, message => {
+      console.warn(message);
+      if (!this.saveWarningShown) {
+        this._pushToast('Progress is not being saved', message, '!');
+        this.saveWarningShown = true;
+      }
+    });
     this._syncMenuBadges();
   }
 
   _isMinigameMode(mode = this.selectedMode) {
-    return mode === 'target_blitz' || mode === 'keep_up' || mode === 'goalie_gauntlet';
+    return mode === 'practice' || mode === 'target_blitz' || mode === 'keep_up' || mode === 'goalie_gauntlet';
   }
 
   _syncMenuBadges() {
@@ -176,7 +215,17 @@ export class SuperKickKingdomApp {
     if (!container) return;
     const el = document.createElement('div');
     el.className = 'trophy-toast';
-    el.innerHTML = `<div style="font-size:24px">${icon}</div><div><strong>${title}</strong><span>${subtitle}</span></div>`;
+    const symbol = document.createElement('span');
+    symbol.textContent = icon;
+    symbol.setAttribute('aria-hidden', 'true');
+    const copy = document.createElement('div');
+    const heading = document.createElement('strong');
+    heading.textContent = title;
+    const detail = document.createElement('span');
+    detail.textContent = subtitle;
+    copy.append(heading, detail);
+    el.append(symbol, copy);
+    while (container.children.length >= 3) container.firstElementChild.remove();
     container.appendChild(el);
     setTimeout(() => {
       el.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
@@ -221,6 +270,24 @@ export class SuperKickKingdomApp {
     };
     window.addEventListener('pointerdown', unlockOnce, { once: true });
     window.addEventListener('keydown', unlockOnce, { once: true });
+    document.getElementById('btn-start-practice').addEventListener('click', () => this._startPractice());
+    document.getElementById('btn-coach').addEventListener('click', () => this._openCoach());
+    document.getElementById('btn-coach-practice').addEventListener('click', () => this._startPractice());
+    document.getElementById('btn-coach-ready').addEventListener('click', () => {
+      if (this.screen === 'match' && !this.save.onboarding.seenModes.includes(this.selectedMode)) {
+        this.save.onboarding.seenModes.push(this.selectedMode);
+        this._persist();
+      }
+      this._closeModal('modal-coach');
+    });
+    document.getElementById('btn-finish-practice').addEventListener('click', () => {
+      const completed = this.practice?.complete;
+      this._showScreen('menu');
+      if (completed) {
+        this.selectedMode = '1v1_cpu';
+        this._showScreen('select');
+      }
+    });
 
     // Hover sound on static buttons
     document.querySelectorAll('button').forEach((btn) => {
@@ -299,13 +366,6 @@ export class SuperKickKingdomApp {
       this.audio.playClick();
       this._openLockerModal('chars');
     });
-    const openMutBtn = document.getElementById('btn-mode-mutators');
-    if (openMutBtn) {
-      openMutBtn.addEventListener('click', () => {
-        this.audio.playClick();
-        this._openMutatorsModal();
-      });
-    }
     document.getElementById('btn-open-options').addEventListener('click', () => {
       this.audio.playClick();
       this._openModal('modal-options');
@@ -484,7 +544,7 @@ export class SuperKickKingdomApp {
           const castleIdx = ARENAS.findIndex((a) => a.id === 'castle');
           if (castleIdx >= 0) this.arenaIdx = castleIdx;
         }
-        document.getElementById('modal-arcade').classList.add('hidden');
+        this._closeModal('modal-arcade');
         this._showScreen('select');
       });
     });
@@ -547,7 +607,7 @@ export class SuperKickKingdomApp {
       el.addEventListener('click', () => {
         this.audio.playClick();
         this.input.cancelRebind();
-        document.getElementById(el.dataset.close).classList.add('hidden');
+        this._closeModal(el.dataset.close);
         this._syncQuickRulePills();
         this._syncMenuBadges();
         if (this.screen === 'select') this._renderSelectUI();
@@ -643,6 +703,11 @@ export class SuperKickKingdomApp {
       document.getElementById('opt-vol-master').value = String(this.settings.masterVolume);
       document.getElementById('opt-vol-music').value = String(this.settings.musicVolume);
       document.getElementById('opt-vol-sfx').value = String(this.settings.sfxVolume);
+      document.getElementById('opt-vol-ambience').value = String(this.settings.ambienceVolume);
+      document.getElementById('opt-music-style').value = this.settings.musicStyle;
+      document.getElementById('opt-sound-palette').value = this.settings.soundPalette;
+      document.getElementById('opt-motion').value = this.settings.motion;
+      document.getElementById('opt-tips').checked = this.settings.showTips;
     };
     this._syncOptionsForm = syncForm;
     syncForm();
@@ -666,6 +731,12 @@ export class SuperKickKingdomApp {
       this.settings.masterVolume = Number(document.getElementById('opt-vol-master').value);
       this.settings.musicVolume = Number(document.getElementById('opt-vol-music').value);
       this.settings.sfxVolume = Number(document.getElementById('opt-vol-sfx').value);
+      this.settings.ambienceVolume = Number(document.getElementById('opt-vol-ambience').value);
+      this.settings.musicStyle = document.getElementById('opt-music-style').value;
+      this.settings.soundPalette = document.getElementById('opt-sound-palette').value;
+      this.settings.motion = document.getElementById('opt-motion').value;
+      this.settings.showTips = document.getElementById('opt-tips').checked;
+      this._applyPreferences();
       this.audio.syncVolumes();
       this._persist();
       this._syncQuickRulePills();
@@ -686,6 +757,11 @@ export class SuperKickKingdomApp {
       'opt-vol-master',
       'opt-vol-music',
       'opt-vol-sfx',
+      'opt-vol-ambience',
+      'opt-music-style',
+      'opt-sound-palette',
+      'opt-motion',
+      'opt-tips',
     ].forEach((id) => {
       document.getElementById(id).addEventListener('input', onChange);
       document.getElementById(id).addEventListener('change', onChange);
@@ -704,6 +780,8 @@ export class SuperKickKingdomApp {
         partyUnlockAll: keepParty,
       });
       this.audio.syncVolumes();
+      this._applyPreferences();
+      this._syncMuteButton();
       syncForm();
       this._syncQuickRulePills();
       this._persist();
@@ -712,7 +790,180 @@ export class SuperKickKingdomApp {
 
   _openModal(id) {
     if (id === 'modal-options') this._syncOptionsForm();
-    document.getElementById(id).classList.remove('hidden');
+    if (this.modalStack.some(entry => entry.id === id)) return;
+    const modal = document.getElementById(id);
+    this.modalStack.push({ id, returnFocus: document.activeElement });
+    modal.classList.remove('hidden');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    const heading = modal.querySelector('h2');
+    if (heading) {
+      if (!heading.id) heading.id = `${id}-title`;
+      modal.setAttribute('aria-labelledby', heading.id);
+    }
+    if (this.screen === 'match' && !this.paused) {
+      this.dialogResume = true;
+      this.paused = true;
+    }
+    this.input.clearAll();
+    this.pendingInputs.clear();
+    this.accumulator = 0;
+    this._syncDialogState();
+    (modal.querySelector('.kickoff-cta-btn:not(.hidden)') || this._focusableElements(modal)[0])?.focus();
+  }
+
+  _closeModal(id) {
+    const index = this.modalStack.findIndex(entry => entry.id === id);
+    if (index < 0) return;
+    const entries = this.modalStack.splice(index);
+    for (const entry of entries) document.getElementById(entry.id).classList.add('hidden');
+    this.input.cancelRebind();
+    this.input.clearAll();
+    this.pendingInputs.clear();
+    this.accumulator = 0;
+    if (!this.modalStack.length && this.dialogResume) {
+      this.dialogResume = false;
+      this.paused = false;
+    }
+    this._syncDialogState();
+    const previous = entries[0].returnFocus;
+    if (previous?.isConnected && !previous.closest('[inert], .hidden')) previous.focus({ preventScroll: true });
+  }
+
+  _closeAllModals() {
+    this.modalStack = [];
+    this.dialogResume = false;
+    this.paused = false;
+    document.querySelectorAll('.modal-backdrop').forEach(modal => modal.classList.add('hidden'));
+    this.input.cancelRebind();
+    this._syncDialogState();
+  }
+
+  _syncDialogState() {
+    const top = this.modalStack.at(-1)?.id;
+    this.input.gameplayActive = this.screen === 'match' && !this.paused && !top;
+    for (const id of ['top-utility-bar', 'play-surface', 'screen-menu', 'screen-select', 'screen-results']) {
+      document.getElementById(id).inert = Boolean(top);
+    }
+    document.querySelectorAll('.modal-backdrop').forEach(modal => {
+      modal.inert = Boolean(top && modal.id !== top);
+      const depth = this.modalStack.findIndex(entry => entry.id === modal.id);
+      modal.style.zIndex = String(60 + Math.max(0, depth));
+      modal.setAttribute('aria-modal', String(modal.id === top));
+    });
+    this.touch.updateVisibility(this.screen, this.settings.touchControls);
+    this.audio.setPaused(this.paused || document.hidden);
+  }
+
+  _focusableElements(root) {
+    return [...root.querySelectorAll('button, input, select, [tabindex="0"]')]
+      .filter(element => !element.disabled && !element.closest('[inert]') && element.getClientRects().length);
+  }
+
+  _trapDialogFocus(event) {
+    if (event.key !== 'Tab' || !this.modalStack.length) return;
+    const elements = this._focusableElements(document.getElementById(this.modalStack.at(-1).id));
+    if (!elements.length) return;
+    const index = elements.indexOf(document.activeElement);
+    if ((event.shiftKey && index <= 0) || (!event.shiftKey && (index < 0 || index === elements.length - 1))) {
+      event.preventDefault();
+      elements[event.shiftKey ? elements.length - 1 : 0].focus();
+    }
+  }
+
+  _applyPreferences() {
+    this.reducedMotion = this.settings.motion === 'reduced' ||
+      (this.settings.motion === 'auto' && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    document.body.dataset.motion = this.reducedMotion ? 'reduced' : 'full';
+    this.art.reducedMotion = this.reducedMotion;
+    if (this.match) {
+      Object.assign(this.match.settings, {
+        reducedMotion: this.reducedMotion, screenShake: this.settings.screenShake,
+        hitstop: this.settings.hitstop, goalSlowMo: this.settings.goalSlowMo,
+      });
+      if (this.reducedMotion) {
+        Object.assign(this.match, {
+          shakeMag: 0, shakeX: 0, shakeY: 0, cameraZoom: 1,
+          cameraFocusX: VIRTUAL_WIDTH / 2, cameraFocusY: VIRTUAL_HEIGHT / 2,
+          slowMoFactor: 1, slowMoTimer: 0,
+        });
+      }
+    }
+    this.touch.updateVisibility(this.screen, this.settings.touchControls);
+  }
+
+  _startPractice() {
+    this.selectedMode = 'practice';
+    this.arenaIdx = 0;
+    if (!isCharUnlocked(this.save, CHARACTERS[this.charIdx0].id)) this.charIdx0 = 0;
+    this.startMatch();
+  }
+
+  _openCoach() {
+    const mode = this.screen === 'match' ? this.selectedMode : 'practice';
+    const [title, dialogue] = MODE_BRIEFINGS[mode] || MODE_BRIEFINGS['1v1_cpu'];
+    document.getElementById('coach-title').textContent = title;
+    document.getElementById('coach-dialogue').textContent = dialogue;
+    const arena = this.match?.arena || ARENAS[this.arenaIdx];
+    const guide = ARENA_GUIDES[arena.id] || ARENA_GUIDES.meadow;
+    document.getElementById('coach-stage-label').textContent = `${arena.name} / ${guide.label}`;
+    document.getElementById('coach-stage-tip').textContent = this.match?.trial?.ruleText ||
+      (this.match?.settings.stageHazards === false
+        ? 'Stage hazards are off. Platforms and the stadium gravity and traction still apply.'
+        : guide.tip);
+    document.getElementById('btn-coach-ready').textContent = this.screen === 'match' ? "LET'S PLAY" : 'GOT IT';
+    document.getElementById('btn-coach-practice').classList.toggle('hidden', this.selectedMode === 'practice' && this.screen === 'match');
+    this._updateControlPrompts(true);
+    this._openModal('modal-coach');
+  }
+
+  _appendControlPrompts(container, hints, actions) {
+    container.replaceChildren();
+    const names = { move: 'Move', jump: 'Jump', kick: 'Strike', lob: 'Lob', dash: 'Dash / parry', item: 'Use item', down: 'Ground pound', pause: 'Pause' };
+    for (const action of actions) {
+      const prompt = document.createElement('span');
+      prompt.className = 'control-prompt';
+      const key = document.createElement('kbd');
+      key.textContent = hints[action];
+      const label = document.createElement('span');
+      label.textContent = names[action];
+      prompt.append(key, label);
+      container.append(prompt);
+    }
+  }
+
+  _updateControlPrompts(force = false) {
+    const source = this.input.activeSource;
+    const signature = `${source}:${this.input.activeSlot}:${this.screen}:${this.selectedMode}:${this.practice?.step}:${this.paused}:${this.input.connectedGamepads}:${JSON.stringify(this.controls)}`;
+    if (!force && signature === this.lastControlSignature) return;
+    this.lastControlSignature = signature;
+    const hints = controlHints(this.input);
+    this._appendControlPrompts(document.getElementById('coach-controls'), hints, ['move', 'jump', 'kick', 'lob', 'dash', 'item']);
+    const toast = document.getElementById('controls-toast');
+    const human = this.match?.players.find(player => !player.isAI && player.controlSlot === this.input.activeSlot) ||
+      this.match?.players.find(player => !player.isAI);
+    const slot = human?.controlSlot ?? 0;
+    this._appendControlPrompts(toast, controlHints(this.input, slot), ['move', 'jump', 'kick', 'dash', 'item']);
+    const tag = document.createElement('b');
+    tag.textContent = `${source === 'gamepad' ? 'GAMEPAD' : source === 'touch' ? 'TOUCH' : 'KEYBOARD'} / ${human?.tag || 'P1'}`;
+    toast.prepend(tag);
+    document.getElementById('menu-input-status').textContent = source === 'gamepad'
+      ? `${this.input.connectedGamepads} controller${this.input.connectedGamepads === 1 ? '' : 's'} ready · A to confirm`
+      : source === 'touch' ? 'Touch ready · Landscape recommended' : 'Keyboard ready · Gamepads welcome';
+    this.touch.updateVisibility(this.screen, this.settings.touchControls);
+    this._renderPracticeCoach();
+  }
+
+  _renderPracticeCoach() {
+    const panel = document.getElementById('practice-coach');
+    panel.classList.toggle('hidden', !this.practice || this.screen !== 'match');
+    if (!this.practice || this.screen !== 'match') return;
+    const step = PRACTICE_STEPS[this.practice.step];
+    document.getElementById('practice-step').textContent = this.practice.complete ? 'READY FOR MATCH NIGHT' : `SKILL ${this.practice.step + 1} / ${PRACTICE_STEPS.length}`;
+    document.getElementById('practice-title').textContent = step?.title || 'You have got this.';
+    document.getElementById('practice-dialogue').textContent = step?.dialogue || 'Coach: Great work. Your next challenge is the raised goal. Keep practicing, or take on your first rival.';
+    this._appendControlPrompts(document.getElementById('practice-prompts'), controlHints(this.input), step?.actions || ['jump', 'kick']);
+    document.getElementById('btn-finish-practice').textContent = this.practice.complete ? 'Play a match' : 'Leave practice';
   }
 
   // =========================================================================
@@ -747,13 +998,13 @@ export class SuperKickKingdomApp {
         this.selectedMode = 'cup';
         this._ensureValidAlly();
         this._applyCupRoundSetup();
-        document.getElementById('modal-cups').classList.add('hidden');
+        this._closeModal('modal-cups');
         this._showScreen('select');
       });
       grid.appendChild(card);
     }
 
-    document.getElementById('modal-cups').classList.remove('hidden');
+    this._openModal('modal-cups');
   }
 
   _applyCupRoundSetup() {
@@ -774,7 +1025,7 @@ export class SuperKickKingdomApp {
   // =========================================================================
   _openTrialsModal() {
     this._renderTrialsGrid();
-    document.getElementById('modal-trials').classList.remove('hidden');
+    this._openModal('modal-trials');
   }
 
   _renderTrialsGrid() {
@@ -828,7 +1079,7 @@ export class SuperKickKingdomApp {
     const arIdx = ARENAS.findIndex((a) => a.id === trial.arenaId);
     this.arenaIdx = arIdx >= 0 ? arIdx : 0;
 
-    document.getElementById('modal-trials').classList.add('hidden');
+    this._closeModal('modal-trials');
     this.startMatch();
   }
 
@@ -838,7 +1089,7 @@ export class SuperKickKingdomApp {
     } else {
       this._renderTournamentBracket();
     }
-    document.getElementById('modal-tourney').classList.remove('hidden');
+    this._openModal('modal-tourney');
   }
 
   _generateTournamentBracket() {
@@ -859,7 +1110,7 @@ export class SuperKickKingdomApp {
     const entrants = [];
     for (let h = 0; h < humans; h++) {
       let chosen = shuffledUnlocked[h % shuffledUnlocked.length];
-      if (h === 0) chosen = CHARACTERS[this.charIdx0];
+      if (h === 0 && isCharUnlocked(this.save, CHARACTERS[this.charIdx0].id)) chosen = CHARACTERS[this.charIdx0];
       else if (h === 1 && isCharUnlocked(this.save, CHARACTERS[this.charIdx1].id)) {
         chosen = CHARACTERS[this.charIdx1];
       }
@@ -1048,7 +1299,7 @@ export class SuperKickKingdomApp {
     this.kitIdx1 = nextMatch.pB.kitIdx || 0;
     this.arenaIdx = Math.max(0, ARENAS.findIndex((a) => a.id === nextMatch.arenaId));
 
-    document.getElementById('modal-tourney').classList.add('hidden');
+    this._closeModal('modal-tourney');
     this.startMatch();
   }
 
@@ -1056,15 +1307,16 @@ export class SuperKickKingdomApp {
     document.getElementById('rec-target').textContent = `BEST: ${this.save.stats.targetBestScore} PTS`;
     document.getElementById('rec-keepup').textContent = `BEST: ${this.save.stats.keepUpBestTime.toFixed(1)}s`;
     document.getElementById('rec-gauntlet').textContent = `BEST: ${this.save.stats.gauntletBestSaves} SAVES`;
-    document.getElementById('modal-arcade').classList.remove('hidden');
+    this._openModal('modal-arcade');
   }
 
   _openMutatorsModal() {
     this._renderMutatorsGrid();
-    document.getElementById('modal-mutators').classList.remove('hidden');
+    this._openModal('modal-mutators');
   }
 
   _renderMutatorsGrid() {
+    const focusedId = document.activeElement?.id;
     const grid = document.getElementById('mutators-grid');
     if (!grid) return;
     grid.innerHTML = '';
@@ -1072,7 +1324,10 @@ export class SuperKickKingdomApp {
 
     for (const mut of MUTATORS) {
       const isOn = active.includes(mut.id);
-      const card = document.createElement('div');
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.id = `mutator-${mut.id}`;
+      card.setAttribute('aria-pressed', String(isOn));
       card.className = `mutator-card ${isOn ? 'active' : ''}`;
       card.innerHTML = `
         <div class="mutator-icon">${mut.icon}</div>
@@ -1092,13 +1347,14 @@ export class SuperKickKingdomApp {
       });
       grid.appendChild(card);
     }
+    if (focusedId?.startsWith('mutator-')) document.getElementById(focusedId)?.focus({ preventScroll: true });
   }
 
   _openLockerModal(tab = this.lockerTab) {
     this.lockerTab = tab;
     document.getElementById('chk-party-unlock').checked = Boolean(this.settings.partyUnlockAll);
     this._renderLockerContent();
-    document.getElementById('modal-locker').classList.remove('hidden');
+    this._openModal('modal-locker');
   }
 
   _renderLockerContent() {
@@ -1301,7 +1557,7 @@ export class SuperKickKingdomApp {
 
   _openControlsModal() {
     this._renderRebindLists();
-    document.getElementById('modal-controls').classList.remove('hidden');
+    this._openModal('modal-controls');
   }
 
   _renderRebindLists() {
@@ -1336,10 +1592,17 @@ export class SuperKickKingdomApp {
           this.input.startRebind((newCode) => {
             btn.classList.remove('listening');
             if (newCode) {
+              const conflict = this.input.bindingConflict(playerKey, act, newCode);
+              if (conflict) {
+                this._pushToast('Choose another key', conflict, '!');
+                this._renderRebindLists();
+                return;
+              }
               const existing = this.controls[playerKey][act] || [];
               this.controls[playerKey][act] = [newCode, ...existing.filter((c) => c !== newCode)].slice(0, 2);
               this._persist();
               this.audio.playClick();
+              this._updateControlPrompts(true);
             }
             this._renderRebindLists();
           });
@@ -1381,7 +1644,20 @@ export class SuperKickKingdomApp {
   // SCREEN TRANSITIONS & SELECT SCREEN
   // =========================================================================
   _showScreen(next) {
+    this._closeAllModals();
+    this.input.clearAll();
+    this.pendingInputs.clear();
+    this.accumulator = 0;
+    if (next !== 'match') {
+      this.matchToken++;
+      this.match?.dispose();
+      this.match = null;
+      this.practice = null;
+    }
     this.screen = next;
+    document.body.dataset.screen = next;
+    document.body.dataset.mode = this.selectedMode;
+    this.input.gameplayActive = next === 'match';
     ['screen-menu', 'screen-select', 'screen-results'].forEach((id) => {
       document.getElementById(id).classList.add('hidden');
     });
@@ -1413,6 +1689,11 @@ export class SuperKickKingdomApp {
     if (this.touch) {
       this.touch.updateVisibility(next, this.settings.touchControls);
     }
+    this._updateControlPrompts(true);
+    if (next !== 'match') {
+      const root = document.getElementById(`screen-${next}`);
+      (root?.querySelector('.quick-mode-btn') || root?.querySelector('.kickoff-cta-btn:not(.hidden)') || root?.querySelector('.back-btn'))?.focus({ preventScroll: true });
+    } else document.activeElement?.blur();
   }
 
   _cycleCharacter(slot, dir) {
@@ -1522,7 +1803,8 @@ export class SuperKickKingdomApp {
       this._tryUnlockSelectChar(0);
       return;
     }
-    if (this.selectedMode === '1v1_pvp') {
+    if (this.selectedMode === '1v1_pvp' ||
+        (this.selectedMode === '2v2' && ['4p', '3p', 'duel'].includes(this.twoVsTwoFormat))) {
       const ch1 = CHARACTERS[this.charIdx1];
       if (!isCharUnlocked(this.save, ch1.id)) {
         this._tryUnlockSelectChar(1);
@@ -1534,6 +1816,7 @@ export class SuperKickKingdomApp {
   }
 
   _renderSelectUI() {
+    const focusedId = document.activeElement?.id;
     const cup = this.activeCup || GRAND_PRIX_CUPS[0];
     const modeTitles = {
       '1v1_cpu': '1P VS CPU — SELECT STRIKERS',
@@ -1575,6 +1858,7 @@ export class SuperKickKingdomApp {
     }
 
     const rightPanel = document.getElementById('right-fighter-panel');
+    rightPanel.inert = this._isMinigameMode() || this.selectedMode === 'cup';
     const aiRow = document.getElementById('ai-diff-row');
 
     if (this._isMinigameMode()) {
@@ -1629,7 +1913,12 @@ export class SuperKickKingdomApp {
     const arenaBox = document.getElementById('arena-cards-container');
     arenaBox.innerHTML = '';
     ARENAS.forEach((ar, idx) => {
-      const card = document.createElement('div');
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.id = `arena-${ar.id}`;
+      card.setAttribute('aria-label', ar.name);
+      card.setAttribute('aria-pressed', String(idx === this.arenaIdx));
+      card.disabled = this.selectedMode === 'cup';
       card.className = `arena-thumb ${idx === this.arenaIdx ? 'selected' : ''} ${ar.isRandom ? 'arena-random-thumb' : ''}`;
       if (ar.isRandom) {
         card.style.background = 'linear-gradient(135deg, #4f46e5 0%, #9333ea 50%, #f43f5e 100%)';
@@ -1649,17 +1938,25 @@ export class SuperKickKingdomApp {
 
     const curArena = ARENAS[this.arenaIdx] || ARENAS[0];
     document.getElementById('arena-title').textContent = `${curArena.name} — ${curArena.subtitle}`;
-    document.getElementById('arena-desc').textContent = curArena.desc;
+    const guide = ARENA_GUIDES[curArena.id];
+    document.getElementById('arena-desc').textContent = guide
+      ? `${guide.tip} ${this.settings.stageHazards ? guide.hazard : 'Stage hazards disabled.'}`
+      : curArena.desc;
 
     this._syncQuickRulePills();
     this._syncMenuBadges();
+    if (focusedId) document.getElementById(focusedId)?.focus({ preventScroll: true });
+    document.getElementById('btn-random-arena').disabled = this.selectedMode === 'cup';
+    document.getElementById('btn-random-ally').classList.toggle('hidden', !showAllyBtn);
+    document.getElementById('btn-random-foe-ally').classList.toggle('hidden', !is2v2);
   }
 
   _populateFighterCard(slot, baseChar, kitIdx) {
     const ch = getCharacter(baseChar.id, kitIdx);
     const unlocked = isCharUnlocked(this.save, baseChar.id);
     const requiresUnlock =
-      !unlocked && (slot === 0 || this.selectedMode === '1v1_pvp');
+      !unlocked && (slot === 0 || this.selectedMode === '1v1_pvp' ||
+        (this.selectedMode === '2v2' && ['4p', '3p', 'duel'].includes(this.twoVsTwoFormat)));
 
     document.getElementById(`char${slot}-name`).textContent = ch.name;
     document.getElementById(`btn-kit-${slot}`).textContent = `🎨 ${ch.kitName || 'Kit 1'}`;
@@ -1702,8 +1999,12 @@ export class SuperKickKingdomApp {
     CHARACTERS.forEach((c, idx) => {
       const chipUnlocked = isCharUnlocked(this.save, c.id);
       const chip = document.createElement('button');
+      chip.id = `roster-${slot}-${c.id}`;
+      chip.setAttribute('aria-label', c.name);
+      chip.setAttribute('aria-pressed', String((slot === 0 ? this.charIdx0 : this.charIdx1) === idx));
       const activeIdx = slot === 0 ? this.charIdx0 : this.charIdx1;
-      const showLockedStyle = !chipUnlocked && (slot === 0 || this.selectedMode === '1v1_pvp');
+      const showLockedStyle = !chipUnlocked && (slot === 0 || this.selectedMode === '1v1_pvp' ||
+        (this.selectedMode === '2v2' && ['4p', '3p', 'duel'].includes(this.twoVsTwoFormat)));
       chip.className = `roster-chip has-sprite ${idx === activeIdx ? 'selected' : ''} ${showLockedStyle ? 'locked' : ''}`;
       chip.style.backgroundImage = `url('./assets/sprites/portrait_${c.id}.png'), radial-gradient(circle at 50% 35%, #ffffff44, ${c.primary})`;
       if (showLockedStyle) {
@@ -1726,16 +2027,6 @@ export class SuperKickKingdomApp {
       strip.appendChild(chip);
     });
 
-    // Special [ 🎲 ] Random Striker Roulette Chip
-    const rndChip = document.createElement('button');
-    rndChip.className = 'roster-chip random-roster-chip';
-    rndChip.innerHTML = '🎲';
-    rndChip.title = 'Roll Random Striker!';
-    rndChip.addEventListener('click', () => {
-      if (slot === 1 && (this.selectedMode === 'cup' || this._isMinigameMode())) return;
-      this.randomizePlayer(slot);
-    });
-    strip.appendChild(rndChip);
   }
 
   _syncQuickRulePills() {
@@ -1773,6 +2064,7 @@ export class SuperKickKingdomApp {
   }
 
   randomizePlayer(slot) {
+    if (slot === 1 && (this.selectedMode === 'cup' || this._isMinigameMode())) return;
     this.audio.playClick();
     const unlocked = CHARACTERS.filter((c) => isCharUnlocked(this.save, c.id));
     if (unlocked.length === 0) return;
@@ -1803,6 +2095,7 @@ export class SuperKickKingdomApp {
   }
 
   randomizeArena() {
+    if (this.selectedMode === 'cup') return;
     this.audio.playClick();
     const realArenas = ARENAS.filter((a) => !a.isRandom);
     const picked = realArenas[Math.floor(Math.random() * realArenas.length)];
@@ -1815,6 +2108,10 @@ export class SuperKickKingdomApp {
   // MATCH LAUNCH, HUD & RESULTS LIFECYCLE
   // =========================================================================
   startMatch() {
+    this.match?.dispose();
+    this._closeAllModals();
+    this.practice = null;
+    const token = ++this.matchToken;
     const ch0 = CHARACTERS[this.charIdx0];
     const ch1 = CHARACTERS[this.charIdx1];
     const arena = ARENAS[this.arenaIdx] || ARENAS[0];
@@ -1825,7 +2122,8 @@ export class SuperKickKingdomApp {
       playersConfig = [
         { slot: 0, team: 0, tag: 'P1', charId: ch0.id, kitIdx: this.kitIdx0, isAI: false, role: 'striker' },
       ];
-      if (this.selectedMode === 'keep_up') introTitle = 'DON’T LET ANY BALL HIT THE LAVA!';
+      if (this.selectedMode === 'practice') introTitle = 'LEARN AT YOUR OWN PACE';
+      else if (this.selectedMode === 'keep_up') introTitle = 'DON’T LET ANY BALL HIT THE LAVA!';
       else if (this.selectedMode === 'goalie_gauntlet') introTitle = 'GUARD YOUR NET — 3 LIVES!';
       else introTitle = 'SMASH TARGETS & SCORE FOR 2x COMBO!';
     } else if (this.selectedMode === '1v1_pvp') {
@@ -1937,7 +2235,7 @@ export class SuperKickKingdomApp {
       const tm = this.tourneyState.activeMatch;
       const slotFor = (ent, sideSlot) => {
         if (ent.isAI) return sideSlot;
-        if (this.input.connectedGamepads > ent.humanIdx) return ent.humanIdx;
+        if (this.input.getGamepad(ent.humanIdx)) return ent.humanIdx;
         return sideSlot; // Pass-and-play keyboard seamlessly maps Left->WASD (0), Right->Arrows (1)!
       };
       // If single human is on Right side vs CPU on Left, let single human still use WASD (slot 0) if no 2nd pad!
@@ -1949,7 +2247,8 @@ export class SuperKickKingdomApp {
       introTitle = `TOURNAMENT: ${tm.pA.tag} VS ${tm.pB.tag}`;
       playersConfig = [
         {
-          slot: slotA,
+          slot: 0,
+          controlSlot: slotA,
           team: 0,
           tag: tm.pA.tag,
           charId: tm.pA.charId,
@@ -1958,7 +2257,8 @@ export class SuperKickKingdomApp {
           role: 'striker',
         },
         {
-          slot: slotB,
+          slot: 1,
+          controlSlot: slotB,
           team: 1,
           tag: tm.pB.tag,
           charId: tm.pB.charId,
@@ -2017,16 +2317,24 @@ export class SuperKickKingdomApp {
       trial: this.selectedMode === 'trial' ? this.activeTrial : null,
       arenaId: chosenArena.id,
       playersConfig,
-      settings: this.settings,
+      settings: { ...this.settings, reducedMotion: this.reducedMotion },
       audio: this.audio,
       introTitle,
       onGoal: () => this._syncHUD(),
-      onMatchEnd: (summary) => this._handleMatchFinished(summary),
+      onMatchEnd: (summary) => {
+        if (this.matchToken === token && this.screen === 'match') this._handleMatchFinished(summary);
+      },
     });
 
     this._setupMatchHUD(ch0, ch1);
     this._showScreen('match');
+    if (this.selectedMode === 'practice') {
+      this.practice = new PracticeCoach(this.match);
+      this._renderPracticeCoach();
+      document.getElementById('controls-toast').classList.add('hidden');
+    } else document.getElementById('controls-toast').classList.remove('hidden');
     this._syncHUD();
+    if (this.settings.showTips && !this.save.onboarding.seenModes.includes(this.selectedMode)) this._openCoach();
   }
 
   _setupMatchHUD(ch0, ch1) {
@@ -2061,31 +2369,23 @@ export class SuperKickKingdomApp {
           : this.match?.players[0]?.tag || 'PLAYER 1';
     }
 
-    const controlsToast = document.getElementById('controls-toast');
-    if (this.selectedMode === '2v2' && (this.twoVsTwoFormat === '4p' || (this.match?.players.filter((p) => !p.isAI).length >= 4))) {
-      controlsToast.innerHTML = `
-        <span><b>🎮 4P 2v2 COUCH:</b> P1 (Pad 1/WASD) &amp; P3 (Pad 3/IJKL) vs P2 (Pad 2/Arrows) &amp; P4 (Pad 4/NumPad)</span>
-        <span class="toast-sep">|</span>
-        <span><b>CONTROLS:</b> Stick/D-Pad Move • <b>A:</b> Jump • <b>X:</b> Strike (Hold: Charge, Up+X: Lob, Down in Air: Ground Pound) • <b>B/LB:</b> Dash • <b>RB:</b> Item • <b>Start:</b> Pause</span>
-      `;
-    }
-
-    const p2Hint = document.getElementById('p2-toast-hint');
-    const sep = document.querySelector('.toast-sep');
-    const hasTwoHumans = this.match?.players.filter((p) => !p.isAI).length >= 2;
-    if (p2Hint) p2Hint.classList.toggle('hidden', !hasTwoHumans);
-    if (sep) sep.classList.toggle('hidden', !hasTwoHumans);
+    this._updateControlPrompts(true);
 
     const hypeRow = document.getElementById('hud-hype-row');
     const hypeBox1 = document.getElementById('hype-box-1');
-    if (this.settings.hyperStrikes === false) {
+    if (this.match.settings.hyperStrikes === false || this.selectedMode === 'practice') {
       hypeRow.classList.add('hidden');
     } else {
       hypeRow.classList.remove('hidden');
       hypeBox1.style.visibility = this._isMinigameMode() ? 'hidden' : 'visible';
     }
 
-    if (this.selectedMode === 'target_blitz') {
+    if (this.selectedMode === 'practice') {
+      leftSub.textContent = 'GUIDED PRACTICE';
+      rightName.textContent = 'SKILLS';
+      rightSub.textContent = 'AT YOUR PACE';
+      modeTag.textContent = 'TRAINING';
+    } else if (this.selectedMode === 'target_blitz') {
       rightName.textContent = 'BEST RECORD';
       rightSub.textContent = 'PTS';
       modeTag.textContent = 'TARGET BLITZ';
@@ -2112,6 +2412,8 @@ export class SuperKickKingdomApp {
       rightName.textContent = ch1.name.toUpperCase();
       rightSub.textContent = `TRIAL #${this.activeTrial.num}`;
       modeTag.textContent = 'STRIKER TRIAL';
+    } else if (this.selectedMode === '2v2') {
+      rightName.textContent = ch1.name.toUpperCase();
     } else {
       rightName.textContent = ch1.name.toUpperCase();
       rightSub.textContent =
@@ -2127,7 +2429,10 @@ export class SuperKickKingdomApp {
     const rightScoreEl = document.getElementById('hud-right-score');
     const timerEl = document.getElementById('hud-timer');
 
-    if (this.selectedMode === 'target_blitz') {
+    if (this.selectedMode === 'practice') {
+      leftScoreEl.textContent = String(m.scores[0]);
+      rightScoreEl.textContent = `${this.practice?.step || 0}/5`;
+    } else if (this.selectedMode === 'target_blitz') {
       leftScoreEl.textContent = String(m.scores[0]);
       rightScoreEl.textContent = String(Math.max(this.save.stats.targetBestScore, m.scores[0]));
     } else if (this.selectedMode === 'keep_up') {
@@ -2150,7 +2455,7 @@ export class SuperKickKingdomApp {
       timerEl.textContent = `W-${wave}`;
       timerEl.classList.toggle('urgent', m.gauntletLives === 1);
       this.audio.setUrgent(m.gauntletLives === 1);
-    } else if (m.suddenDeath && this.settings.suddenDeathMode === 'golden') {
+    } else if (m.suddenDeath && m.settings.suddenDeathMode === 'golden') {
       timerEl.textContent = 'GOLDEN';
       timerEl.classList.add('urgent');
       this.audio.setUrgent(true);
@@ -2169,7 +2474,11 @@ export class SuperKickKingdomApp {
     }
 
     // Sync Team Hype Meters
-    if (this.settings.hyperStrikes !== false && m.hype) {
+    const objective = document.getElementById('trial-objective');
+    const progress = trialProgress(m);
+    objective.classList.toggle('hidden', !progress);
+    if (objective.textContent !== progress) objective.textContent = progress;
+    if (m.settings.hyperStrikes !== false && m.hype) {
       for (let t = 0; t <= 1; t++) {
         const val = Math.min(100, Math.floor(m.hype[t] || 0));
         const fill = document.getElementById(`hype-fill-${t}`);
@@ -2186,12 +2495,22 @@ export class SuperKickKingdomApp {
 
   togglePause(forceState) {
     if (this.screen !== 'match') return;
-    this.paused = forceState !== undefined ? forceState : !this.paused;
-    document.getElementById('modal-pause').classList.toggle('hidden', !this.paused);
-    document.getElementById('controls-toast').style.opacity = this.paused ? '1' : '0.85';
+    const pause = forceState !== undefined ? forceState : !this.paused;
+    if (pause) {
+      if (!this.paused) this._openModal('modal-pause');
+    } else {
+      this._closeAllModals();
+      this.input.clearAll();
+      this.pendingInputs.clear();
+      this.accumulator = 0;
+    }
   }
 
   _handleMatchFinished(summary) {
+    if (summary.mode === 'practice') {
+      this._showScreen('menu');
+      return;
+    }
     this.lastSummary = summary;
     const headline = document.getElementById('results-headline');
     const scoreline = document.getElementById('results-scoreline');
@@ -2354,7 +2673,7 @@ export class SuperKickKingdomApp {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td style="color:${pl.char.primary}; font-weight:800;">${pl.tag} — ${pl.char.name}</td>
-        <td><b>${pl.stats.goals}</b></td>
+        <td><b>${pl.stats.goals}</b>${pl.stats.ownGoals ? ` <span class="mini-pill" title="Own goals">${pl.stats.ownGoals} OG</span>` : ''}</td>
         <td>${pl.stats.hyperStrikes || 0}⚡ / ${pl.stats.powerShots}</td>
         <td>${pl.stats.saves} / ${pl.stats.parries || 0}🛡️</td>
         <td>${pl.stats.itemsUsed}</td>
@@ -2379,7 +2698,7 @@ export class SuperKickKingdomApp {
     if (humans.some((p) => (p.stats.hyperStrikes || 0) >= 1)) this._unlockTrophy('hyper_unleashed');
     if (humans.some((p) => p.stats.saves >= 4)) this._unlockTrophy('brick_wall');
     if (humans.some((p) => p.stats.kos >= 5)) this._unlockTrophy('heavy_brawler');
-    if (summary.players.some((p) => p.team === 0 && (p.stats.comboPasses || 0) >= 1) && humans.length > 0) {
+    if (summary.players.some((p) => humans.some(human => human.team === p.team) && (p.stats.comboPasses || 0) >= 1)) {
       this._unlockTrophy('team_chemistry');
     }
     if (humans.some((p) => p.stats.itemsUsed >= 4)) this._unlockTrophy('item_chef');
@@ -2392,7 +2711,7 @@ export class SuperKickKingdomApp {
       }
     }
 
-    if (summary.mode === '1v1_cpu' && this.settings.aiDifficulty === 'legend' && summary.winnerTeam === 0) {
+    if (summary.mode === '1v1_cpu' && summary.settings.aiDifficulty === 'legend' && summary.winnerTeam === 0) {
       this._unlockTrophy('legend_slayer');
     }
 
@@ -2401,7 +2720,7 @@ export class SuperKickKingdomApp {
     if (this.save.wonCups.includes('haunted_cup')) this._unlockTrophy('cup_haunted');
     if (this.save.wonCups.includes('cosmic_cup')) this._unlockTrophy('cup_cosmic');
 
-    if ((summary.mode === '2v2' || (summary.mode === 'cup' && this.cupCoop)) && summary.winnerTeam === 0) {
+    if ((summary.mode === '2v2' || (summary.mode === 'cup' && this.cupCoop)) && humanWon) {
       this._unlockTrophy('coop_champ');
     }
 
@@ -2409,7 +2728,7 @@ export class SuperKickKingdomApp {
     if (this.save.stats.keepUpBestTime >= 45) this._unlockTrophy('keepup_pro');
     if (this.save.stats.gauntletBestSaves >= 15) this._unlockTrophy('gauntlet_wall');
 
-    if (!isMini && (this.settings.activeMutators?.length || 0) >= 3) {
+    if (!isMini && (summary.settings.activeMutators?.length || 0) >= 3) {
       this._unlockTrophy('mutator_madness');
     }
 
@@ -2427,7 +2746,14 @@ export class SuperKickKingdomApp {
     this.lastFrameTime = timestamp;
     const tSec = timestamp / 1000;
 
+    this.input._getGamepads();
+    const disconnected = this.input.disconnectedSlots.splice(0);
+    if (this.screen === 'match' && disconnected.some(slot => this.match?.players.some(player => !player.isAI && player.controlSlot === slot))) {
+      this.togglePause(true);
+      this._pushToast('Controller disconnected', 'Reconnect it or use the keyboard, then resume when you are ready.', '🎮');
+    }
     this._handleGlobalShortcuts();
+    this._updateControlPrompts();
 
     // Update Gamepad Indicator Pill
     this.input._getGamepads();
@@ -2447,10 +2773,7 @@ export class SuperKickKingdomApp {
       if (this.screen === 'results') this._renderPodiumPuppets(tSec);
     } else if (this.screen === 'match' && this.match) {
       if (!this.paused) {
-        const inputs = this.match.players.map((pl) =>
-          pl.isAI ? this.ai.computeInput(pl, this.match, rawDt) : this.input.getPlayerInput(pl.slot)
-        );
-        this.match.update(rawDt, inputs);
+        this._stepMatch(rawDt);
         this._syncHUD();
 
         if (this.toastFadeTimer > 0) {
@@ -2467,16 +2790,110 @@ export class SuperKickKingdomApp {
     requestAnimationFrame((ts) => this._loop(ts));
   }
 
+  _stepMatch(rawDt) {
+    const match = this.match;
+    if (!match || this.paused) return;
+    for (const player of match.players.filter(player => !player.isAI)) {
+      const current = this.input.getPlayerInput(player.controlSlot);
+      const pending = this.pendingInputs.get(player.controlSlot);
+      for (const key of INPUT_EDGES) current[key] ||= pending?.[key] || false;
+      this.pendingInputs.set(player.controlSlot, current);
+    }
+    this.accumulator += Math.min(0.05, Math.max(0, rawDt));
+    while (this.accumulator + 1e-9 >= FIXED_STEP && this.match === match && !this.paused) {
+      for (const entity of [match.courier, ...match.players, ...match.balls, ...match.shells, ...match.torpedoes, ...match.keepers, ...match.hounds, ...match.bananas, ...match.targets]) {
+        entity.previousX = entity.x;
+        entity.previousY = entity.y;
+      }
+      const inputs = match.players.map(player => player.isAI
+        ? this.ai.computeInput(player, match, FIXED_STEP)
+        : this.pendingInputs.get(player.controlSlot) || {});
+      const inHitstop = match.hitstopTimer > 0;
+      match.update(FIXED_STEP, inputs);
+      if (!inHitstop) {
+        for (const pending of this.pendingInputs.values()) for (const key of INPUT_EDGES) pending[key] = false;
+      }
+      this.accumulator = Math.max(0, this.accumulator - FIXED_STEP);
+      if (this.practice?.update()) {
+        this.audio.playCoachCue();
+        if (this.practice.complete) {
+          this.save.onboarding.completed = true;
+          this._persist();
+        }
+        this._renderPracticeCoach();
+      }
+    }
+  }
+
   _anyModalOpen() {
-    return Array.from(document.querySelectorAll('.modal-backdrop')).some(
-      (m) => !m.classList.contains('hidden') && m.id !== 'modal-pause'
-    );
+    return Boolean(this.modalStack?.length);
+  }
+
+  _handleMenuGamepad() {
+    const root = this.modalStack.length
+      ? document.getElementById(this.modalStack.at(-1).id)
+      : document.getElementById(`screen-${this.screen}`);
+    if (!root) return false;
+    const slot = Math.max(0, this.input.activeSlot);
+    const direction = this.input.getGamepadTapDirection(slot);
+    const elements = this._focusableElements(root);
+    if (!elements.length) return false;
+    let focused = root.contains(document.activeElement) ? document.activeElement : null;
+    if (direction.x && focused?.matches('select, input[type="range"]')) {
+      if (focused.tagName === 'SELECT') {
+        focused.selectedIndex = (focused.selectedIndex + direction.x + focused.options.length) % focused.options.length;
+      } else {
+        const step = Number(focused.step) || 0.05;
+        focused.value = String(Math.max(Number(focused.min), Math.min(Number(focused.max), Number(focused.value) + direction.x * step)));
+      }
+      focused.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    }
+    if (direction.x || direction.y) {
+      if (!focused) focused = elements[0];
+      else {
+        const origin = focused.getBoundingClientRect();
+        const cx = origin.x + origin.width / 2, cy = origin.y + origin.height / 2;
+        let best = null, bestScore = Infinity;
+        for (const candidate of elements) {
+          if (candidate === focused) continue;
+          const rect = candidate.getBoundingClientRect();
+          const dx = rect.x + rect.width / 2 - cx, dy = rect.y + rect.height / 2 - cy;
+          const forward = direction.x ? dx * direction.x : dy * direction.y;
+          const sideways = direction.x ? Math.abs(dy) : Math.abs(dx);
+          if (forward <= 4) continue;
+          const score = forward + sideways * 3;
+          if (score < bestScore) { best = candidate; bestScore = score; }
+        }
+        if (best) focused = best;
+      }
+      focused.focus({ preventScroll: true });
+      focused.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      this.audio.playHover();
+      return true;
+    }
+    const startPressed = this.input.wasStartJustPressed();
+    if (this.input.wasGamepadButtonJustPressed(slot, 0) || startPressed) {
+      const target = (startPressed ? root.querySelector('.kickoff-cta-btn:not(.hidden)') : focused) ||
+        root.querySelector('.quick-mode-btn, .kickoff-cta-btn:not(.hidden)') || elements[0];
+      if (target.matches('select, input[type="range"]')) target.focus();
+      else target.click();
+      return true;
+    }
+    return false;
   }
 
   _handleGlobalShortcuts() {
-    if (this.input.rebindingCallback) return;
+    if (this.input.rebindingCallback) {
+      if (this.input.wasGamepadButtonJustPressed(Math.max(0, this.input.activeSlot), 1)) {
+        this.input.cancelRebind();
+        this._renderRebindLists();
+      }
+      return;
+    }
 
-    if (this.input.wasKeyJustPressed('KeyM')) {
+    const humanSlots = this.match?.players.filter(player => !player.isAI).map(player => player.controlSlot) || [];
+    if (this.input.wasKeyJustPressed('KeyM') && !this.input.isBound('KeyM', humanSlots)) {
       this.audio.toggleMute();
       this._syncMuteButton();
       this._persist();
@@ -2487,27 +2904,29 @@ export class SuperKickKingdomApp {
       this.input.wasKeyJustPressed('Enter');
     if (this.input.wasKeyJustPressed('F11') || isAltEnter) {
       if (this.touch) this.touch.toggleFullscreen();
+      this.input.keysDown.delete('Enter');
+      this.input.keysJustPressed.delete('Enter');
+      return;
     }
 
     if (this._anyModalOpen()) {
       if (
         this.input.wasKeyJustPressed('Escape') ||
-        this.input.wasStartJustPressed() ||
-        this.input.wasGamepadButtonJustPressed(0, 1) ||
-        this.input.wasGamepadButtonJustPressed(0, 8)
+        this.input.wasGamepadButtonJustPressed(Math.max(0, this.input.activeSlot), 1) ||
+        this.input.wasGamepadButtonJustPressed(Math.max(0, this.input.activeSlot), 8)
       ) {
         this.audio.playBack();
-        document.querySelectorAll('.modal-backdrop').forEach((m) => {
-          if (m.id !== 'modal-pause') m.classList.add('hidden');
-        });
-      }
+        this._closeModal(this.modalStack.at(-1).id);
+      } else this._handleMenuGamepad();
       return;
     }
+    if (this.input.isEditingField()) return;
+    if (this.screen !== 'match' && this._handleMenuGamepad()) return;
 
     if (this.screen === 'match') {
       if (
         this.input.wasKeyJustPressed('Escape') ||
-        this.input.wasKeyJustPressed('KeyP') ||
+        (this.input.wasKeyJustPressed('KeyP') && !this.input.isBound('KeyP', humanSlots)) ||
         this.input.wasStartJustPressed()
       ) {
         this.togglePause();
@@ -2554,8 +2973,8 @@ export class SuperKickKingdomApp {
       }
 
       if (
-        this.input.wasKeyJustPressed('Enter') ||
-        this.input.wasKeyJustPressed('Space') ||
+        ((this.input.wasKeyJustPressed('Enter') || this.input.wasKeyJustPressed('Space')) &&
+          !document.activeElement?.matches('button')) ||
         this.input.wasStartJustPressed() ||
         this.input.wasGamepadButtonJustPressed(0, 0)
       ) {
@@ -2572,7 +2991,7 @@ export class SuperKickKingdomApp {
     } else if (this.screen === 'results') {
       if (
         this.input.wasKeyJustPressed('KeyR') ||
-        this.input.wasKeyJustPressed('Enter') ||
+        (this.input.wasKeyJustPressed('Enter') && !document.activeElement?.matches('button')) ||
         this.input.wasStartJustPressed() ||
         this.input.wasGamepadButtonJustPressed(0, 0)
       ) {
@@ -2597,6 +3016,7 @@ export class SuperKickKingdomApp {
   }
 
   _renderBackdropCanvas(tSec, dt) {
+    if (this.reducedMotion) { tSec = 0; dt = 0; }
     const ctx = this.ctx;
     ctx.clearRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
 
@@ -2607,7 +3027,7 @@ export class SuperKickKingdomApp {
         : this.art.images.title_bg;
 
     if (img) {
-      const zoom = 1.03 + Math.sin(tSec * 0.4) * 0.015;
+      const zoom = this.reducedMotion ? 1 : 1.03 + Math.sin(tSec * 0.4) * 0.015;
       const w = VIRTUAL_WIDTH * zoom;
       const h = VIRTUAL_HEIGHT * zoom;
       ctx.drawImage(img, (VIRTUAL_WIDTH - w) / 2, (VIRTUAL_HEIGHT - h) / 2, w, h);
@@ -2638,6 +3058,7 @@ export class SuperKickKingdomApp {
   }
 
   _renderSelectPuppets(tSec, dt) {
+    if (this.reducedMotion) tSec = 0;
     if (this.previewKickTimer0 > 0) this.previewKickTimer0 = Math.max(0, this.previewKickTimer0 - dt);
     if (this.previewKickTimer1 > 0) this.previewKickTimer1 = Math.max(0, this.previewKickTimer1 - dt);
 
@@ -2653,7 +3074,7 @@ export class SuperKickKingdomApp {
 
       // Mathematical auto-framing: guarantees full visibility from cap/horns to cleats
       // with at least 22px headroom and zero clipping!
-      const minHeadroom = 22;
+      const minHeadroom = 40;
       const maxSafeScaleH = (pedestalTurfY - minHeadroom) / (metrics.drawSize * metrics.footY);
       const maxSafeScaleW = 216 / metrics.drawSize;
       const targetScale = 0.88 * ch.stats.size;
@@ -2757,15 +3178,17 @@ export class SuperKickKingdomApp {
 
     list.forEach((pl, i) => {
       const xPos = list.length === 1 ? 260 : i === 0 ? 208 : 312;
-      const hop = Math.abs(Math.sin(tSec * 6.5 + i * 0.9)) * 20;
+      const hop = this.reducedMotion ? 0 : Math.abs(Math.sin(tSec * 4 + i * 0.9)) * 9;
+      const metrics = CHAR_SPRITE_METRICS[pl.char.id];
+      const actualScale = Math.min(0.85, 118 / (metrics.drawSize * metrics.footY), 115 / metrics.drawSize);
       const dummy = {
         x: xPos,
-        y: 94 - hop,
+        y: 144 - 52 * actualScale - hop,
         vx: 0,
         vy: 0,
         facing: i === 0 ? 1 : -1,
         char: pl.char,
-        visualScale: 1.08,
+        visualScale: actualScale / pl.char.stats.size,
         squashX: 1,
         squashY: 1,
         onGround: hop < 2,
@@ -2786,6 +3209,14 @@ export class SuperKickKingdomApp {
   _renderMatchCanvas() {
     const ctx = this.ctx;
     const m = this.match;
+    const alpha = this.paused ? 1 : Math.min(1, this.accumulator / FIXED_STEP);
+    const interpolate = entity => {
+      if (!Number.isFinite(entity.previousX) || Math.hypot(entity.x - entity.previousX, entity.y - entity.previousY) > 250) return entity;
+      return { ...entity, x: entity.previousX + (entity.x - entity.previousX) * alpha,
+        y: entity.previousY + (entity.y - entity.previousY) * alpha };
+    };
+    const scene = { ...m, players: m.players.map(interpolate), balls: m.balls.map(interpolate) };
+    const visualTime = this.reducedMotion ? 0 : m.time;
     ctx.save();
     ctx.clearRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
 
@@ -2795,68 +3226,69 @@ export class SuperKickKingdomApp {
     ctx.translate(-m.cameraFocusX, -m.cameraFocusY);
 
     // 1. Lush Hand-Painted Illustrated Stadium Background (All 7 Biomes)
-    this.art.drawArenaBackground(ctx, m.arena, m.time);
+    this.art.drawArenaBackground(ctx, m.arena, visualTime);
 
     // 2. Sky-Cloud Courier & Item Bubble
-    this.art.drawCloudCourier(ctx, m.courier, m.time);
+    this.art.drawCloudCourier(ctx, interpolate(m.courier), visualTime);
 
     // 3. Target Blitz Bullseyes
     for (const tg of m.targets) {
-      this.art.drawTargetEntity(ctx, tg, m.time);
+      this.art.drawTargetEntity(ctx, interpolate(tg), visualTime);
     }
 
     // 4. Shroom GoalKeepers
     for (const kp of m.keepers) {
-      this.art.drawGoalKeeperEntity(ctx, kp, m.time);
+      this.art.drawGoalKeeperEntity(ctx, interpolate(kp), visualTime);
     }
 
     // 5. Foreground Stadium Architecture, Turf, Molten/Glacier Sheen, Goal Nets & Pedestals
-    this.art.drawArenaForeground(ctx, m.arena, m, m.time);
+    this.art.drawArenaForeground(ctx, m.arena, scene, visualTime);
 
     // 6. Interactive Stage Hazards, Pinball Bumpers & Goalie Gauntlet Striker-Cannon
-    this.art.drawStageHazards(ctx, m, m.time);
+    this.art.drawStageHazards(ctx, scene, visualTime);
 
     // 7. Chain-Hounds, Banana Slicks, Ricochet Shells & Cannon Torpedoes
     for (const hd of m.hounds) {
-      this.art.drawChainHoundEntity(ctx, hd, m.time);
+      this.art.drawChainHoundEntity(ctx, interpolate(hd), visualTime);
     }
     for (const bn of m.bananas) {
-      this.art.drawBananaEntity(ctx, bn, m.time);
+      this.art.drawBananaEntity(ctx, interpolate(bn), visualTime);
     }
     for (const sh of m.shells) {
-      this.art.drawShellEntity(ctx, sh, m.time);
+      this.art.drawShellEntity(ctx, interpolate(sh), visualTime);
     }
     for (const tp of m.torpedoes) {
-      this.art.drawTorpedoEntity(ctx, tp, m.time);
+      this.art.drawTorpedoEntity(ctx, interpolate(tp), visualTime);
     }
 
     // 8. Articulated 2D Character Puppets (12 Strikers + Shadow Clones)
-    for (const pl of m.players) {
-      this.art.drawCharacterPuppet(ctx, pl, m.balls, m.time);
+    for (const pl of scene.players) {
+      this.art.drawCharacterPuppet(ctx, pl, scene.balls, visualTime);
     }
 
     // 9. Soccer Balls (6 Skins, Rugby Egg-Ball, Magnus Spin Trails, Combo Voltage & Vanish Shot)
     const isRugby = m.hasMutator('rugbyBall');
-    for (const b of m.balls) {
-      this.art.drawBall(ctx, b, m.arena.pitchFloorY, m.time, this.settings.equippedBallSkin, isRugby);
+    for (const b of scene.balls) {
+      const floor = b.x < m.arena.pitchLeftX || b.x > m.arena.pitchRightX ? m.arena.goalFloorY : m.arena.pitchFloorY;
+      this.art.drawBall(ctx, b, floor, visualTime, this.settings.equippedBallSkin, isRugby);
     }
 
     // 10. Particles, Custom Goal Explosions, Shockwaves & Floating Callouts
     this.art.drawParticles(ctx, m.particles, m.shockwaves);
 
     // 10b. Dynamic Additive Scene Lighting & Bloom Pass!
-    this.art.drawDynamicLighting(ctx, m, m.time);
+    if (!this.reducedMotion) this.art.drawDynamicLighting(ctx, scene, visualTime);
 
     ctx.restore();
 
     // 11. Signature Hyper-Strike Anime Cut-In Banner!
-    this.art.drawHyperCutIn(ctx, m.hyperCutIn, m.time);
+    this.art.drawHyperCutIn(ctx, m.hyperCutIn, visualTime);
 
     // 12. Dramatic Center-Screen Arcade Banner (3..2..1, GOOOAL!!, SUDDEN DEATH!)
     if (m.bannerTimer > 0 && m.bannerText) {
       ctx.save();
       const pop = Math.min(1, m.bannerTimer * 4.5);
-      const bounceScale = 0.85 + Math.sin(pop * Math.PI * 0.65) * 0.22;
+      const bounceScale = this.reducedMotion ? 1 : 0.85 + Math.sin(pop * Math.PI * 0.65) * 0.22;
       ctx.translate(VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT * 0.4);
       ctx.scale(bounceScale, bounceScale);
 

@@ -205,8 +205,9 @@ export class AIController {
       Math.random() < diff.aggression
     ) {
       mem.targetX = courier.x;
-      const bubbleY = courier.y + 92;
-      if (Math.abs(courier.x - player.x) < 120 && player.y > bubbleY + 30) {
+      const bubbleY = courier.bubbleY ?? courier.y + 94;
+      mem.targetX = courier.bubbleX ?? courier.x;
+      if (Math.abs(mem.targetX - player.x) < 120 && player.y > bubbleY + 30) {
         if (player.onGround || (player.jumpsLeft > 0 && player.vy > -180)) {
           mem.wantJump = true;
         }

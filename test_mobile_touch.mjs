@@ -57,7 +57,8 @@ console.log('✓ Test 3 Passed: Downward flick triggers Ground Pound input edge'
 
 // Test 4: Action Buttons (Jump, Strike, Lob, Dash, Item)
 input.setTouchAction('jump', true);
-assert.strictEqual(input.touchState.up, true);
+assert.strictEqual(input.touchState.jumpHeld, true);
+assert.strictEqual(input.touchState.up, false, 'Jump button should not also aim a lob');
 assert.strictEqual(input.touchState.jumpPressed, true);
 input.endFrame();
 input.setTouchAction('jump', false);
@@ -107,7 +108,7 @@ console.log('✓ Test 5 Passed: Analog vector properly updates directions and tr
 const mockApp = {
   screen: 'menu',
   settings: { touchControls: 'auto' },
-  _togglePause() { this.paused = !this.paused; },
+  togglePause() { this.paused = !this.paused; },
   paused: false
 };
 

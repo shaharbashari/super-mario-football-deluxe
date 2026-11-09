@@ -1,5 +1,4 @@
-// Super Kick Kingdom 2.0 (Deluxe Edition) — Sub-Stepped Kung-Foot Physics, Combat & Hazard Engine
-// 12 Strikers, Hyper-Strikes, Perfect Parry, Magnus Spin, 2v2 Combo Voltage, 7 Hazard Arenas, 18 Items, 7 Mutators & 3 Minigames
+// Sub-stepped arcade physics, combat, stage hazards and challenge rules.
 
 import {
   VIRTUAL_WIDTH,
@@ -10,6 +9,7 @@ import {
   getCharacter,
   getArena,
 } from './config.js';
+import { advanceCharacterAnimation } from './animation.js';
 
 export class MatchSimulation {
   constructor({
@@ -31,17 +31,22 @@ export class MatchSimulation {
     this.immediateEnd = immediateEnd;
     this.arena = getArena(arenaId);
     this.settings = { ...settings };
-    if (trial?.mutators) {
-      this.settings.activeMutators = Array.from(new Set([...(this.settings.activeMutators || []), ...trial.mutators]));
-    }
-    if (trial?.targetScore) {
+    if (trial) {
+      this.settings.activeMutators = [...(trial.mutators || [])];
+      this.settings.itemMode = 'off';
+      this.settings.matchDuration = 180;
+      this.settings.ballPreset = 'balanced';
+      this.settings.stageHazards = true;
       this.settings.scoreLimit = trial.targetScore;
+    }
+    if (mode === 'practice') {
+      Object.assign(this.settings, { matchDuration: 0, scoreLimit: 0, itemMode: 'off', stageHazards: false, activeMutators: [] });
     }
     this.audio = audio;
     this.onGoal = onGoal;
     this.onMatchEnd = onMatchEnd;
 
-    this.ballPreset = BALL_PRESETS[settings.ballPreset] || BALL_PRESETS.balanced;
+    this.ballPreset = BALL_PRESETS[this.settings.ballPreset] || BALL_PRESETS.balanced;
 
     this.time = 0;
     this.phase = isAttract ? 'playing' : 'countdown';
@@ -49,9 +54,9 @@ export class MatchSimulation {
     this.lastCountdownBeep = 4;
 
     this.isMinigame = ['target_blitz', 'keep_up', 'goalie_gauntlet'].includes(mode);
-    this.timeRemaining = mode === 'target_blitz' ? 60 : settings.matchDuration;
+    this.timeRemaining = mode === 'target_blitz' ? 60 : this.settings.matchDuration;
     this.unlimitedTime =
-      mode === 'keep_up' || mode === 'goalie_gauntlet' || (!this.isMinigame && settings.matchDuration === 0);
+      mode === 'keep_up' || mode === 'goalie_gauntlet' || (!this.isMinigame && this.settings.matchDuration === 0);
     this.suddenDeath = false;
 
     this.scores = [0, mode === 'goalie_gauntlet' ? 3 : 0];
@@ -109,11 +114,11 @@ export class MatchSimulation {
     }
 
     this.courier = {
-      active: settings.itemMode !== 'off' && !this.isMinigame,
+      active: this.settings.itemMode !== 'off' && !this.isMinigame,
       x: VIRTUAL_WIDTH / 2,
       y: 305,
       heldItemId: null,
-      spawnTimer: settings.itemMode === 'frantic' ? 3.0 : 5.5,
+      spawnTimer: this.settings.itemMode === 'frantic' ? 3.0 : 5.5,
     };
 
     this.shells = [];
@@ -124,6 +129,9 @@ export class MatchSimulation {
     this.targets = [];
     this.particles = [];
     this.shockwaves = [];
+    this.cloneIdCounter = 20;
+    this.disposed = false;
+    this.endTimer = null;
 
     this._initStageHazards();
 
@@ -196,11 +204,16 @@ export class MatchSimulation {
     } else if (this.mode === 'keep_up' && isLeft) {
       startX = VIRTUAL_WIDTH / 2;
     }
+    if (this.trial?.specialRule === 'no_lava' && isLeft) {
+      startX = this.arena.platforms[0].x;
+      startY = this.arena.platforms[0].y - 52 * ch.stats.size * (cfg.bossScale || 1);
+    }
 
     const bossScale = cfg.bossScale || 1.0;
 
     return {
       slot: cfg.slot ?? idx,
+      controlSlot: cfg.controlSlot ?? cfg.slot ?? idx,
       team: cfg.team,
       tag: cfg.tag || (cfg.isAI ? 'CPU' : `P${idx + 1}`),
       isAI: Boolean(cfg.isAI),
@@ -296,6 +309,12 @@ export class MatchSimulation {
         kos: 0,
         meteorSpikes: 0,
         wallJumps: 0,
+        meteorGoals: 0,
+        lavaTouches: 0,
+        jumps: 0,
+        touches: 0,
+        dashes: 0,
+        ownGoals: 0,
       },
     };
   }
@@ -320,6 +339,7 @@ export class MatchSimulation {
       lastKicker: null,
       lastKickTime: -10,
       lastTeam: -1,
+      lastWasMeteorSpike: false,
       auraColor: null,
       freezeTimer: 0,
       burnTimer: 0,
@@ -364,7 +384,7 @@ export class MatchSimulation {
   }
 
   addShake(mag) {
-    if (this.isAttract) return;
+    if (this.isAttract || this.settings.reducedMotion) return;
     this.shakeMag = Math.min(36, Math.max(this.shakeMag, mag * this.settings.screenShake));
   }
 
@@ -374,6 +394,8 @@ export class MatchSimulation {
   }
 
   spawnBurst(x, y, color, count = 12, speed = 360, size = 7, shape = 'circle') {
+    count = Math.min(count, Math.max(0, 360 - this.particles.length));
+    if (this.settings.reducedMotion) count = Math.ceil(count * 0.35);
     for (let i = 0; i < count; i++) {
       const ang = Math.random() * Math.PI * 2;
       const spd = speed * (0.35 + Math.random() * 0.85);
@@ -396,7 +418,7 @@ export class MatchSimulation {
   }
 
   spawnFloatingText(x, y, text, color = '#fde047', size = 30) {
-    if (this.isAttract) return;
+    if (this.isAttract || this.particles.length >= 380) return;
     this.particles.push({
       x,
       y,
@@ -413,6 +435,7 @@ export class MatchSimulation {
   }
 
   spawnShockwave(x, y, color = '#ffffff', maxRadius = 150, lineWidth = 8) {
+    if (this.shockwaves.length >= 24) return;
     this.shockwaves.push({
       x,
       y,
@@ -426,6 +449,7 @@ export class MatchSimulation {
 
   // --- Main Frame Update ---
   update(rawDt, playerInputs) {
+    if (this.disposed) return;
     const dt = Math.min(0.05, rawDt);
     this.time += dt;
 
@@ -517,7 +541,7 @@ export class MatchSimulation {
 
     if (this.phase === 'goal_celebration') {
       this.phaseTimer -= dt;
-      this._stepWorld(simDt, playerInputs, false);
+      this._stepWorld(simDt, this.players.map(() => ({})), false);
       this._updateParticles(dt);
       if (this.phaseTimer <= 0) {
         this.slowMoFactor = 1.0;
@@ -581,7 +605,8 @@ export class MatchSimulation {
       return;
     }
 
-    if (this.scores[0] === this.scores[1] && !this.suddenDeath) {
+    if (this.scores[0] === this.scores[1]) {
+      if (this.suddenDeath) this.settings.suddenDeathMode = 'golden';
       this.suddenDeath = true;
       this.phase = 'sudden_death_intro';
       this.phaseTimer = 2.0;
@@ -605,15 +630,23 @@ export class MatchSimulation {
     this.phase = 'ended';
     this.audio?.playWhistle('end');
     this.triggerBanner(customBanner, '', '#fde047', 2.0);
-    if (this.onMatchEnd) {
+    const summary = this.getSummary();
+    if (this.onMatchEnd && !this.disposed) {
       if (this.immediateEnd) {
-        this.onMatchEnd(this.getSummary());
+        this.onMatchEnd(summary);
       } else {
-        setTimeout(() => {
-          this.onMatchEnd(this.getSummary());
+        this.endTimer = setTimeout(() => {
+          this.endTimer = null;
+          if (!this.disposed) this.onMatchEnd(summary);
         }, 1350);
       }
     }
+  }
+
+  dispose() {
+    this.disposed = true;
+    if (this.endTimer !== null) clearTimeout(this.endTimer);
+    this.endTimer = null;
   }
 
   _resetPositionsForKickoff() {
@@ -643,6 +676,22 @@ export class MatchSimulation {
       p.chargeTime = 0;
       p.kickTimer = 0;
       p.spinAngle = 0;
+      p.spinVel = 0;
+      p.groundPoundState = 'none';
+      p.groundPoundTimer = 0;
+      p.dashTimer = 0;
+      p.dashGhosts = [];
+      p.touchingWallDir = 0;
+      p.jumpsLeft = 1;
+      p.jumpBufferTimer = 0;
+      p.onGround = true;
+      p.coyoteTimer = 0.1;
+      p.animState = 'idle';
+      p.animPhase = 0;
+      if (this.trial?.specialRule === 'no_lava' && p.team === 0) {
+        p.x = this.arena.platforms[0].x;
+        p.y = this.arena.platforms[0].y - p.halfH;
+      }
     }
     this.triggerBanner('PLAY ON!', '', '#38bdf8', 0.75);
     this.audio?.playWhistle('start');
@@ -650,6 +699,7 @@ export class MatchSimulation {
 
   // --- Sub-Stepped World Physics ---
   _stepWorld(dt, playerInputs, allowScoring) {
+    const inputsByPlayer = new Map(this.players.map((player, index) => [player, playerInputs[index] || {}]));
     if (this.powLeftTimer > 0) this.powLeftTimer = Math.max(0, this.powLeftTimer - dt);
     if (this.powRightTimer > 0) this.powRightTimer = Math.max(0, this.powRightTimer - dt);
 
@@ -692,8 +742,10 @@ export class MatchSimulation {
     for (let i = 0; i < this.players.length; i++) {
       const p = this.players[i];
       p.hyperReady = this.settings.hyperStrikes !== false && this.hype[p.team] >= 100;
-      const inp = playerInputs[i] || {};
+      const inp = inputsByPlayer.get(p) || {};
       this._updatePlayer(p, inp, dt);
+      advanceCharacterAnimation(p, dt);
+      if (this.phase === 'ended') return;
     }
 
     // Player-vs-Player body separation + SuperStar Rainbow Tackle!
@@ -725,7 +777,7 @@ export class MatchSimulation {
       }
     }
 
-    // Sub-step balls (4 substeps = zero tunneling!)
+    // Ball substeps keep fast shots from skipping thin collision surfaces.
     const subSteps = 4;
     const subDt = dt / subSteps;
     for (let step = 0; step < subSteps; step++) {
@@ -942,7 +994,8 @@ export class MatchSimulation {
       // 2. Stomp Stun on Opponents during plunge:
       if (p.groundPoundState === 'plunge') {
         for (const foe of this.players) {
-          if (foe !== p && foe.team !== p.team && foe.starTimer <= 0) {
+          if (foe !== p && foe.team !== p.team && foe.starTimer <= 0 && foe.invulnTimer <= 0 &&
+              !(foe.char.stats.phaseDash && foe.dashTimer > 0)) {
             const dx = Math.abs(foe.x - p.x);
             const dy = foe.y - p.y;
             if (dx < (p.halfW + foe.halfW + 16) && dy > 0 && dy < (p.halfH + foe.halfH + 26)) {
@@ -991,6 +1044,7 @@ export class MatchSimulation {
 
     // Dash Burst (also opens Perfect Parry window!)
     if (inp.dashPressed && p.dashCooldown <= 0 && p.dashTimer <= 0) {
+      p.stats.dashes++;
       p.dashDir = inp.left ? -1 : inp.right ? 1 : p.facing;
       p.facing = p.dashDir;
       p.dashTimer = p.char.stats.shellSlide ? 0.23 : 0.14;
@@ -1000,10 +1054,6 @@ export class MatchSimulation {
       p.squashY = 0.76;
       this.audio?.playDash();
       this.spawnBurst(p.x, p.y + p.halfH * 0.5, '#ffffff', 7, 220, 6);
-    }
-
-    if (p.parryWindowTimer > 0) {
-      this._checkParryDeflect(p);
     }
 
     const friction = p.onGround ? this.arena.groundFriction ?? 1.0 : 1.0;
@@ -1078,6 +1128,9 @@ export class MatchSimulation {
       p.wallJumpCooldown = 0.24;
       p.jumpsLeft = 1; // Wall-jump gives striker a fresh mid-air jump/volley option!
       p.stats.wallJumps = (p.stats.wallJumps || 0) + 1;
+      p.stats.jumps++;
+      p.jumpBufferTimer = 0;
+      p.coyoteTimer = 0;
       p.squashX = 0.74;
       p.squashY = 1.3;
       this.audio?.playJump(p.char, true);
@@ -1090,6 +1143,7 @@ export class MatchSimulation {
       p.jumpBufferTimer = 0;
       p.squashX = 0.78;
       p.squashY = 1.26;
+      p.stats.jumps++;
       this.audio?.playJump(p.char, false);
       this.spawnBurst(p.x, p.y + p.halfH, '#ffffff', 6, 180, 5);
     } else if (inp.jumpPressed && p.jumpsLeft > 0 && !p.onGround) {
@@ -1101,6 +1155,7 @@ export class MatchSimulation {
       p.spinVel = 15.5;
       p.squashX = 0.82;
       p.squashY = 1.22;
+      p.stats.jumps++;
       this.audio?.playJump(p.char, true);
       this.spawnBurst(p.x, p.y + p.halfH * 0.6, p.char.aura, 9, 240, 6);
     }
@@ -1111,7 +1166,7 @@ export class MatchSimulation {
 
     // Princess Pippa's Royal Hover!
     p.isHovering = false;
-    if (!p.onGround && p.jumpsLeft === 0 && p.hoverFuel > 0 && inp.up && p.vy > 60) {
+    if (!p.onGround && p.jumpsLeft === 0 && p.hoverFuel > 0 && (inp.jumpHeld || inp.up) && p.vy > 60) {
       p.hoverFuel -= dt;
       p.vy = Math.min(p.vy, 125);
       p.isHovering = true;
@@ -1163,44 +1218,23 @@ export class MatchSimulation {
       }
     }
 
+    if (p.parryWindowTimer > 0) this._checkParryDeflect(p);
     if (p.kickTimer > 0) {
       p.kickTimer -= dt;
       this._checkActiveKickHits(p);
     }
 
     this._moveAndCollidePlayer(p, dt, inp.down);
-
-    // Smooth Animation Phase Integration & Kinetic Gait
-    const speedX = Math.abs(p.vx || 0);
-    if (p.stunTimer > 0) {
-      p.animState = 'ouch';
-      p.animPhase = (p.animPhase || 0) + dt;
-      p.strideBounce = 0;
-    } else if (p.groundPoundState && p.groundPoundState !== 'none') {
-      p.animState = 'jump';
-      p.strideBounce = 0;
-    } else if (p.kickTimer > 0) {
-      p.animState = p.kickType === 'up' ? 'kickup' : 'kickside';
-      p.strideBounce = 0;
-    } else if (!p.onGround) {
-      p.animState = 'jump';
-      p.strideBounce = 0;
-    } else if (speedX > 38) {
-      p.animState = 'run';
-      const speedRatio = Math.max(0.65, Math.min(1.4, speedX / 300));
-      p.animPhase = (p.animPhase || 0) + dt * speedRatio;
-      p.runPhase = (p.runPhase || 0) + dt * speedRatio * 18;
-      p.strideBounce = Math.sin(p.runPhase) * 2.5;
-    } else {
-      p.animState = 'idle';
-      p.animPhase = (p.animPhase || 0) + dt;
-      p.strideBounce = 0;
+    p.footstepTimer = Math.max(0, (p.footstepTimer || 0) - dt);
+    if (p.onGround && Math.abs(p.vx) > 160 && p.footstepTimer === 0) {
+      p.footstepTimer = Math.max(0.13, 0.3 - Math.abs(p.vx) / 5000);
+      this.audio?.playFootstep?.(this.arena.id, p.char.stats.weight);
     }
 
     // Sky-Cloud Courier Item Pickup!
-    if (!p.isClone && this.courier.active && this.courier.heldItemId) {
-      const bx = this.courier.x;
-      const by = this.courier.y + 92;
+    if (!p.isClone && !p.heldItem && this.courier.active && this.courier.heldItemId) {
+      const bx = this.courier.bubbleX ?? this.courier.x;
+      const by = this.courier.bubbleY ?? this.courier.y + 94;
       if (Math.hypot(p.x - bx, p.y - by) < p.halfH + 42) {
         p.heldItem = this.courier.heldItemId;
         this.courier.heldItemId = null;
@@ -1238,6 +1272,8 @@ export class MatchSimulation {
         b.lastKicker = p;
         b.lastTeam = p.team;
         b.lastKickTime = this.time;
+        b.lastWasMeteorSpike = false;
+        p.stats.touches++;
         b.auraColor = '#fde047';
         b.freezeTimer = 0;
         p.hitBallsThisSwing.add(b.id);
@@ -1345,6 +1381,8 @@ export class MatchSimulation {
   }
 
   _applyKickToBall(p, b) {
+    b.lastWasMeteorSpike = false;
+    p.stats.touches++;
     // Simultaneous Ball CLASH!
     if (this.time - b.lastKickTime < 0.085 && b.lastTeam !== -1 && b.lastTeam !== p.team && !p.isHyperSwing) {
       b.vx = (Math.random() - 0.5) * 260;
@@ -1571,9 +1609,11 @@ export class MatchSimulation {
     p.onGround = false;
 
     // 1. Sunken Pitch Risers (Junior's Shell-Slide bounces off riser walls!)
+    p.touchingWallDir = 0;
     if (p.y + p.halfH > ar.goalFloorY + 14) {
       if (p.x - p.halfW < ar.pitchLeftX) {
         p.x = ar.pitchLeftX + p.halfW;
+        p.touchingWallDir = 1;
         if (p.char.stats.shellSlide && p.dashTimer > 0) {
           p.dashDir = 1;
           p.facing = 1;
@@ -1584,6 +1624,7 @@ export class MatchSimulation {
       }
       if (p.x + p.halfW > ar.pitchRightX) {
         p.x = ar.pitchRightX - p.halfW;
+        p.touchingWallDir = -1;
         if (p.char.stats.shellSlide && p.dashTimer > 0) {
           p.dashDir = -1;
           p.facing = -1;
@@ -1594,7 +1635,6 @@ export class MatchSimulation {
       }
     }
 
-    p.touchingWallDir = 0;
     const upperLeftWallX = ar.goalLineLeftX + 52;
     const upperRightWallX = ar.goalLineRightX - 52;
     if (p.y - p.halfH < ar.goalCeilingY - 8) {
@@ -1678,13 +1718,15 @@ export class MatchSimulation {
             b.lastKicker = p;
             b.lastTeam = p.team;
             b.lastKickTime = this.time;
+            b.lastWasMeteorSpike = false;
             this.spawnBurst(b.x, b.y, '#fde047', 10, 240, 6);
           }
         }
 
         // Shockwave Stumbles Nearby Opponents
         for (const foe of this.players) {
-          if (foe !== p && foe.team !== p.team && foe.starTimer <= 0 && foe.onGround) {
+          if (foe !== p && foe.team !== p.team && foe.starTimer <= 0 && foe.invulnTimer <= 0 && foe.onGround &&
+              !(foe.char.stats.phaseDash && foe.dashTimer > 0)) {
             if (Math.abs(foe.x - p.x) < 190) {
               foe.vy = -450;
               foe.vx += Math.sign(foe.x - p.x || p.facing) * 420;
@@ -1697,6 +1739,7 @@ export class MatchSimulation {
       } else if (prevVy > 450) {
         p.squashX = 1.18;
         p.squashY = 0.84;
+        this.audio?.playLanding?.(this.arena.id, p.char.stats.weight);
       }
 
       // Kongor's Seismic Fast-Fall Slam!
@@ -1731,6 +1774,7 @@ export class MatchSimulation {
         p.onGround = false;
         p.jumpsLeft = 1;
         p.lavaTickTimer = 0.35;
+        p.stats.lavaTouches++;
         this.audio?.playItemUse('FireFlower');
         this.spawnBurst(p.x, floorY, '#f97316', 10, 280, 6);
         this.spawnFloatingText(p.x, p.y - 40, 'HOT TURF!', '#fb923c', 22);
@@ -1782,6 +1826,8 @@ export class MatchSimulation {
       b.vy = (b.vy / spd) * 2350;
     }
 
+    const previousX = b.x;
+    const previousBottom = b.y + b.radius;
     b.x += b.vx * dt;
     b.y += b.vy * dt;
     b.angle += b.angVel * dt;
@@ -1789,6 +1835,29 @@ export class MatchSimulation {
     const r = b.radius;
     const upperLeftX = ar.goalLineLeftX + 52;
     const upperRightX = ar.goalLineRightX - 52;
+
+    // Resolve the vertical risers before choosing the elevated goal floor.
+    if (previousBottom > ar.goalFloorY + 6 && b.y > ar.goalFloorY) {
+      if (previousX >= ar.pitchLeftX && b.x - r < ar.pitchLeftX) {
+        b.x = ar.pitchLeftX + r;
+        b.vx = Math.abs(b.vx) * bounce;
+      } else if (previousX <= ar.pitchRightX && b.x + r > ar.pitchRightX) {
+        b.x = ar.pitchRightX - r;
+        b.vx = -Math.abs(b.vx) * bounce;
+      }
+    }
+
+    for (const platform of ar.platforms) {
+      if (b.vy > 0 && previousBottom <= platform.y + 1 && b.y + r >= platform.y &&
+          b.x + r * 0.7 > platform.x - platform.w / 2 &&
+          b.x - r * 0.7 < platform.x + platform.w / 2) {
+        b.y = platform.y - r;
+        b.vy = -b.vy * bounce;
+        b.squashX = 1.15;
+        b.squashY = 0.87;
+        this.audio?.playBallBounce(Math.abs(b.vy));
+      }
+    }
 
     // 1. Top Ceiling (y = 18)
     if (b.y - r < 18) {
@@ -1802,6 +1871,7 @@ export class MatchSimulation {
           if (idleIc) {
             idleIc.state = 'warn';
             idleIc.timer = 0.45;
+            this.audio?.playHazardWarning?.('ice');
           }
         }
       }
@@ -1946,6 +2016,8 @@ export class MatchSimulation {
         const outDir = kp.side === 'left' ? 1 : -1;
         b.vx = outDir * Math.max(780, Math.abs(b.vx) * 1.05);
         b.vy = -360 + ny * 320;
+        b.lastWasMeteorSpike = false;
+        kp.recoilTimer = 0.22;
         this.audio?.playBallKick(0.75, false);
         this.spawnBurst(kp.x + outDir * 30, kp.y, '#f472b6', 12, 340, 7);
         this.spawnFloatingText(kp.x, kp.y - 65, 'SAVED!', '#4ade80', 24);
@@ -1955,11 +2027,25 @@ export class MatchSimulation {
     // 10. Body Dribble / Header / Captain Spore Cap-Bounce!
     for (const p of this.players) {
       const headBonus = p.bigHead ? 1.18 : 1.0;
-      const cx = Math.max(p.x - p.halfW * 0.84, Math.min(p.x + p.halfW * 0.84, b.x));
-      const cy = Math.max(p.y - p.halfH * 0.9 * headBonus, Math.min(p.y + p.halfH * 0.85, b.y));
-      const dx = b.x - cx;
-      const dy = b.y - cy;
-      const dist = Math.hypot(dx, dy);
+      let cx = Math.max(p.x - p.halfW * 0.84, Math.min(p.x + p.halfW * 0.84, b.x));
+      let cy = Math.max(p.y - p.halfH * 0.9 * headBonus, Math.min(p.y + p.halfH * 0.85, b.y));
+      let dx = b.x - cx;
+      let dy = b.y - cy;
+      let dist = Math.hypot(dx, dy);
+      if (dist < 0.0001) {
+        const edges = [
+          { distance: b.x - (p.x - p.halfW * 0.84), nx: -1, ny: 0 },
+          { distance: p.x + p.halfW * 0.84 - b.x, nx: 1, ny: 0 },
+          { distance: b.y - (p.y - p.halfH * 0.9 * headBonus), nx: 0, ny: -1 },
+          { distance: p.y + p.halfH * 0.85 - b.y, nx: 0, ny: 1 },
+        ];
+        const edge = edges.reduce((closest, candidate) => candidate.distance < closest.distance ? candidate : closest);
+        cx = b.x + edge.nx * edge.distance;
+        cy = b.y + edge.ny * edge.distance;
+        dx = edge.nx * 0.001;
+        dy = edge.ny * 0.001;
+        dist = 0.001;
+      }
 
       if (dist < r && dist > 0.0001) {
         if (
@@ -2001,6 +2087,7 @@ export class MatchSimulation {
           b.vx += p.facing * 240 + p.vx * 0.3;
           b.lastKicker = p;
           b.lastTeam = p.team;
+          b.lastWasMeteorSpike = false;
           this.audio?.playDrumBounce();
           this.spawnBurst(b.x, b.y + r, '#fde047', 12, 300, 6);
           this.spawnFloatingText(p.x, p.y - 60, 'CAP BOING!', '#fde047', 22);
@@ -2018,6 +2105,7 @@ export class MatchSimulation {
           b.vy = Math.min(b.vy, this.mode === 'keep_up' ? -420 : -190) + p.vy * 0.25;
           b.lastKicker = p;
           b.lastTeam = p.team;
+          b.lastWasMeteorSpike = false;
           if (this.mode === 'goalie_gauntlet' && !b.savedCounted && p.team === 0 && b.vx > 80) {
             b.savedCounted = true;
             this.gauntletSaves++;
@@ -2189,6 +2277,7 @@ export class MatchSimulation {
           if (ic.timer <= 0) {
             ic.state = 'warn';
             ic.timer = 1.1;
+            this.audio?.playHazardWarning?.('ice');
           }
         } else if (ic.state === 'warn') {
           ic.timer -= dt;
@@ -2214,11 +2303,13 @@ export class MatchSimulation {
             }
           }
 
+          if (!ic.active) continue;
           // Hit balls
           for (const b of this.balls) {
             if (Math.hypot(b.x - ic.x, b.y - (ic.y + 32)) < 28 + b.radius) {
               b.vy = 620;
               b.vx += (b.x >= ic.x ? 1 : -1) * 420;
+              b.lastWasMeteorSpike = false;
               ic.active = false;
               ic.timer = 5.0;
               this.audio?.playIcicleCrash();
@@ -2245,6 +2336,7 @@ export class MatchSimulation {
         if (lv.state === 'idle' && lv.timer <= 0) {
           lv.state = 'warn';
           lv.timer = 1.3;
+          this.audio?.playHazardWarning?.('lava');
         } else if (lv.state === 'warn' && lv.timer <= 0) {
           lv.state = 'erupt';
           lv.timer = 1.15;
@@ -2258,7 +2350,8 @@ export class MatchSimulation {
             }
           }
           for (const p of this.players) {
-            if (p.invulnTimer > 0 || p.starTimer > 0 || p.fireImmuneTimer > 0) continue;
+            if (p.invulnTimer > 0 || p.starTimer > 0 || p.fireImmuneTimer > 0 ||
+                (p.char.stats.phaseDash && p.dashTimer > 0)) continue;
             if (Math.abs(p.x - lv.x) < 34 + p.halfW && p.y + p.halfH > floorY - 220) {
               p.vy = -960;
               p.onGround = false;
@@ -2290,7 +2383,7 @@ export class MatchSimulation {
       const speed = 980 + Math.min(680, this.gauntletSaves * 38) + Math.random() * 180;
       const aimY = this.arena.goalCeilingY + 55 + Math.random() * (this.arena.goalFloorY - this.arena.goalCeilingY - 110);
       const tFlight = (cn.x - this.arena.goalLineLeftX) / speed;
-      const gravComp = 0.5 * this.ballPreset.gravity * tFlight;
+      const gravComp = 0.5 * this.ballPreset.gravity * this.arena.gravityScale * tFlight * tFlight;
       const dy = aimY - cn.y - gravComp;
       const dx = this.arena.goalLineLeftX - cn.x;
       const len = Math.hypot(dx, dy) || 1;
@@ -2385,7 +2478,7 @@ export class MatchSimulation {
     }
 
     if (this.trial?.specialRule === 'meteor_spikes' && scoringTeam === 0) {
-      if (!ball.lastWasMeteorSpike) {
+      if (!ball.lastWasMeteorSpike || ball.lastKicker?.team !== 0) {
         this.triggerBanner('NO GOAL!', 'MUST SCORE WITH METEOR SPIKE!', '#ef4444', 1.8);
         this.audio?.playBrawlHit();
         this.addShake(12);
@@ -2407,9 +2500,9 @@ export class MatchSimulation {
 
     if (ball.lastKicker && ball.lastKicker.team === scoringTeam) {
       ball.lastKicker.stats.goals++;
-    } else {
-      const teamMate = this.players.find((p) => p.team === scoringTeam && !p.isClone);
-      if (teamMate) teamMate.stats.goals++;
+      if (ball.lastWasMeteorSpike) ball.lastKicker.stats.meteorGoals++;
+    } else if (ball.lastKicker) {
+      ball.lastKicker.stats.ownGoals++;
     }
 
     // Custom Locker Room Goal Explosion Palette!
@@ -2452,8 +2545,16 @@ export class MatchSimulation {
         : this.players.find((p) => p.team === scoringTeam);
 
     this.phase = 'goal_celebration';
+    for (const player of this.players) {
+      player.chargeTime = 0;
+      player.kickTimer = 0;
+      player.dashTimer = 0;
+      player.parryWindowTimer = 0;
+      player.groundPoundState = 'none';
+      player.groundPoundTimer = 0;
+    }
     this.phaseTimer = 2.15;
-    if (this.settings.goalSlowMo) {
+    if (this.settings.goalSlowMo && !this.settings.reducedMotion) {
       this.slowMoFactor = 0.28;
       this.slowMoTimer = 1.5;
       this.cameraZoom = 1.12;
@@ -2464,9 +2565,11 @@ export class MatchSimulation {
     const idx = this.balls.indexOf(ball);
     if (idx !== -1) this.balls.splice(idx, 1);
 
+    const ownGoal = ball.lastKicker && ball.lastKicker.team !== scoringTeam;
     this.triggerBanner(
-      'GOOOAL!!',
-      scorer ? `${scorer.char.name.toUpperCase()} SCORES!` : 'WHAT A STRIKE!',
+      ownGoal ? 'OWN GOAL' : 'GOOOAL!!',
+      ownGoal ? `${ball.lastKicker.char.name.toUpperCase()} DEFLECTS INTO THEIR OWN NET`
+        : scorer ? `${scorer.char.name.toUpperCase()} SCORES!` : 'WHAT A STRIKE!',
       scorer ? scorer.char.primary : '#fde047',
       2.1
     );
@@ -2477,12 +2580,12 @@ export class MatchSimulation {
   // --- Sky-Cloud Courier & All 18 Power-Up Mechanics ---
   _updateCourier(dt) {
     if (!this.courier.active) return;
-    const prevX = this.courier.x;
-    const prevY = this.courier.y;
     this.courier.x = VIRTUAL_WIDTH / 2 + Math.sin(this.time * 0.65) * 430;
     this.courier.y = 305 + Math.sin(this.time * 1.3) * 46;
-    this.courier.vx = (this.courier.x - prevX) / Math.max(0.001, dt);
-    this.courier.vy = (this.courier.y - prevY) / Math.max(0.001, dt);
+    this.courier.vx = Math.cos(this.time * 0.65) * 430 * 0.65;
+    this.courier.vy = Math.cos(this.time * 1.3) * 46 * 1.3;
+    this.courier.bubbleX = this.courier.x - this.courier.vx * 0.09 + Math.sin(this.time * 4.2) * 8;
+    this.courier.bubbleY = this.courier.y + 94;
 
     if (!this.courier.heldItemId) {
       this.courier.spawnTimer -= dt;
@@ -2618,13 +2721,15 @@ export class MatchSimulation {
       }
 
       case '1UP':
+        if (this.trial || this.mode === 'practice') break;
         this.scores[p.team]++;
         p.stats.goals++;
         this.addShake(14);
         this.spawnShockwave(p.x, p.y, '#10b981', 260, 10);
         this.spawnBurst(p.x, p.y, '#fef08a', 26, 480, 8, 'rect');
         if (this.onGoal) this.onGoal(p.team, this.scores);
-        if (this.settings.scoreLimit > 0 && this.scores[p.team] >= this.settings.scoreLimit) {
+        if ((this.suddenDeath && this.settings.suddenDeathMode === 'golden') ||
+            (this.settings.scoreLimit > 0 && this.scores[p.team] >= this.settings.scoreLimit)) {
           this._finishMatch();
         }
         break;
@@ -2684,7 +2789,7 @@ export class MatchSimulation {
         if (existingClones.length < 2) {
           const clone = this._createPlayer(
             {
-              slot: 20 + Math.floor(Math.random() * 1000),
+              slot: this.cloneIdCounter++,
               team: p.team,
               tag: 'CLONE',
               charId: p.char.id,
@@ -2826,6 +2931,7 @@ export class MatchSimulation {
         if (Math.hypot(b.x - hd.x, b.y - hd.y) < hd.radius + b.radius) {
           b.vx = (hd.ownerTeam === 0 ? 1 : -1) * 1050;
           b.vy = -480;
+          b.lastWasMeteorSpike = false;
           this.audio?.playBallKick(0.7, false);
         }
       }
@@ -2846,6 +2952,10 @@ export class MatchSimulation {
       bn.x += bn.vx * dt;
       bn.y += bn.vy * dt;
 
+      if (bn.y + 16 > ar.goalFloorY + 12) {
+        if (bn.x - 16 < ar.pitchLeftX) { bn.x = ar.pitchLeftX + 16; bn.vx = Math.abs(bn.vx) * 0.35; }
+        if (bn.x + 16 > ar.pitchRightX) { bn.x = ar.pitchRightX - 16; bn.vx = -Math.abs(bn.vx) * 0.35; }
+      }
       const floorY = bn.x >= ar.pitchLeftX && bn.x <= ar.pitchRightX ? ar.pitchFloorY : ar.goalFloorY;
       if (bn.y + 16 >= floorY) {
         bn.y = floorY - 16;
@@ -2877,6 +2987,7 @@ export class MatchSimulation {
     for (let i = this.keepers.length - 1; i >= 0; i--) {
       const k = this.keepers[i];
       k.timer -= dt;
+      k.recoilTimer = Math.max(0, (k.recoilTimer || 0) - dt);
       if (this.balls.length > 0) {
         const targetY = Math.max(
           this.arena.goalCeilingY + 75,
@@ -2904,6 +3015,10 @@ export class MatchSimulation {
       sh.x += sh.vx * dt;
       sh.y += sh.vy * dt;
 
+      if (sh.y + sh.radius > ar.goalFloorY + 12) {
+        if (sh.x - sh.radius < ar.pitchLeftX) { sh.x = ar.pitchLeftX + sh.radius; sh.vx = Math.abs(sh.vx); }
+        if (sh.x + sh.radius > ar.pitchRightX) { sh.x = ar.pitchRightX - sh.radius; sh.vx = -Math.abs(sh.vx); }
+      }
       const floorY = sh.x >= ar.pitchLeftX && sh.x <= ar.pitchRightX ? ar.pitchFloorY : ar.goalFloorY;
       if (sh.y + sh.radius > floorY) {
         sh.y = floorY - sh.radius;
@@ -2950,6 +3065,7 @@ export class MatchSimulation {
         if (Math.hypot(b.x - sh.x, b.y - sh.y) < sh.radius + b.radius) {
           b.vx = sh.vx * 1.15;
           b.vy = -520;
+          b.lastWasMeteorSpike = false;
           this.audio?.playBallKick(0.6, false);
         }
       }
@@ -3026,7 +3142,7 @@ export class MatchSimulation {
     if (!p1) return false;
 
     if (this.trial.specialRule === 'meteor_spikes') {
-      return (p1.stats.meteorSpikes || 0) >= (this.trial.targetScore || 2);
+      return p1.stats.meteorGoals >= this.trial.targetScore && this.scores[0] >= this.trial.targetScore;
     }
     if (this.trial.specialRule === 'wall_jumps') {
       return (p1.stats.wallJumps || 0) >= (this.trial.requiredWallJumps || 3);
@@ -3034,6 +3150,7 @@ export class MatchSimulation {
     if (this.trial.specialRule === 'parry_shutout') {
       return this.scores[1] === 0 && (p1.stats.parries || 0) >= (this.trial.requiredParries || 3);
     }
+    if (this.trial.specialRule === 'no_lava') return p1.stats.lavaTouches === 0;
     return true;
   }
 
@@ -3044,6 +3161,7 @@ export class MatchSimulation {
 
     return {
       mode: this.mode,
+      settings: { ...this.settings, activeMutators: [...(this.settings.activeMutators || [])] },
       trial: this.trial,
       trialSuccess: this._evaluateTrialSuccess(winnerTeam),
       scores: [...this.scores],

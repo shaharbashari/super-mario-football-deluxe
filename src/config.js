@@ -1,5 +1,5 @@
 // Super Kick Kingdom 2.0 (Deluxe Edition) — Master Configuration
-// 12 Strikers (+3 Kits each), 7 Hazard Arenas, 18 Items, 7 Mutators, 4 Cups, Locker Room & 24 Trophies
+// 12 strikers, 7 stadiums, 18 items, 9 mutators, 4 cups and 26 trophies.
 
 export const VIRTUAL_WIDTH = 1920;
 export const VIRTUAL_HEIGHT = 1080;
@@ -337,7 +337,7 @@ export const ITEMS = [
   {
     id: 'RedMushroom',
     name: 'Super Mushroom',
-    desc: 'Grow 2.1x huge with booming reach, tackle armor & shot power for 6s!',
+    desc: 'Grow 2x huge with booming reach and shot power for 6s!',
     color: '#ef4444',
     weight: 12,
     competitive: true,
@@ -418,7 +418,7 @@ export const ITEMS = [
   {
     id: 'SuperStar',
     name: 'Super Star',
-    desc: '5s rainbow invincibility, +30% speed & tackle foes on contact!',
+    desc: '5.2s rainbow invincibility, +32% speed & tackle foes on contact!',
     color: '#facc15',
     weight: 8,
     competitive: true,
@@ -442,7 +442,7 @@ export const ITEMS = [
   {
     id: 'MagnetGlove',
     name: 'Magnet Glove',
-    desc: 'Curves & magnetically pulls balls toward your striker for 3.8s!',
+    desc: 'Curves & magnetically pulls balls toward your striker for 4s!',
     color: '#e11d48',
     weight: 10,
     competitive: true,
@@ -450,7 +450,7 @@ export const ITEMS = [
   {
     id: 'ShadowClone',
     name: 'Double Cherry',
-    desc: 'Clones an exact AI striker double to assist in 2v1 volleys for 7s!',
+    desc: 'An AI striker double assists your team for 7.5s (up to two clones).',
     color: '#8b5cf6',
     weight: 8,
     competitive: true,
@@ -914,7 +914,8 @@ export const STRIKER_TRIALS = [
     playerChar: 'rosalina',
     opponents: [{ charId: 'bowser_jr', team: 1, aiDifficulty: 'striker' }],
     mutators: ['floorIsLava'],
-    ruleText: 'Stay on platforms or in the air — touching lava bounces you!',
+    specialRule: 'no_lava',
+    ruleText: 'Start on the central platform. Win without touching the molten floor!',
     rewardCoins: 130,
   },
   {
@@ -1038,14 +1039,67 @@ export const DEFAULT_SETTINGS = {
   masterVolume: 0.8,
   musicVolume: 0.55,
   sfxVolume: 0.85,
+  ambienceVolume: 0.25,
+  musicStyle: 'stadium',
+  soundPalette: 'arcade',
+  motion: 'auto',
+  showTips: true,
   muted: false,
 };
 
-const STORAGE_KEY = 'super_kick_kingdom_deluxe_v2';
+export const STORAGE_KEY = 'super_kick_kingdom_deluxe_v2';
+let recoverySave = null;
 
-export function loadSaveData() {
+const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const validKey = code => typeof code === 'string' &&
+  /^(Key[A-Z]|Digit[0-9]|Arrow(Up|Down|Left|Right)|Space|Enter|Shift(Left|Right)|Control(Left|Right)|Numpad([0-9]|Add|Subtract|Multiply|Divide|Decimal|Enter)|Backslash|Slash|Comma|Period|Quote|Semicolon|Bracket(Left|Right)|Minus|Equal|Backquote)$/.test(code);
+
+function hasRecoveredFields(source, recovered) {
+  if (!isRecord(source) || !isRecord(recovered)) return JSON.stringify(source) !== JSON.stringify(recovered);
+  return Object.keys(source).some(key => key !== 'version' && Object.hasOwn(recovered, key) &&
+    (isRecord(source[key]) && isRecord(recovered[key])
+      ? hasRecoveredFields(source[key], recovered[key])
+      : JSON.stringify(source[key]) !== JSON.stringify(recovered[key])));
+}
+
+export function normalizeSettings(value) {
+  const source = isRecord(value) ? value : {};
+  const result = { ...DEFAULT_SETTINGS, activeMutators: [] };
+  const choices = {
+    matchDuration: [0, 60, 120, 180, 300],
+    scoreLimit: [0, 3, 5, 7, 10],
+    suddenDeathMode: ['golden', 'mayhem'],
+    itemMode: ['standard', 'frantic', 'competitive', 'off'],
+    ballPreset: Object.keys(BALL_PRESETS),
+    aiDifficulty: Object.keys(AI_DIFFICULTIES),
+    touchControls: ['auto', 'on', 'off'],
+    musicStyle: ['stadium', 'club', 'chill'],
+    soundPalette: ['arcade', 'punchy', 'soft'],
+    motion: ['auto', 'full', 'reduced'],
+    equippedBallSkin: BALL_SKINS.map(skin => skin.id),
+    equippedGoalExplosion: GOAL_EXPLOSIONS.map(effect => effect.id),
+  };
+  for (const [key, values] of Object.entries(choices)) {
+    if (values.includes(source[key])) result[key] = source[key];
+  }
+  for (const key of ['hyperStrikes', 'stageHazards', 'partyUnlockAll', 'hitstop', 'goalSlowMo', 'muted', 'showTips']) {
+    if (typeof source[key] === 'boolean') result[key] = source[key];
+  }
+  for (const key of ['masterVolume', 'musicVolume', 'sfxVolume', 'ambienceVolume', 'screenShake']) {
+    if (typeof source[key] === 'number' && Number.isFinite(source[key])) {
+      result[key] = Math.max(0, Math.min(key === 'screenShake' ? 1.4 : 1, source[key]));
+    }
+  }
+  if (Array.isArray(source.activeMutators)) {
+    result.activeMutators = [...new Set(source.activeMutators.filter(id => MUTATORS.some(mutator => mutator.id === id)))];
+  }
+  return result;
+}
+
+export function normalizeSaveData(value) {
   const defaultUnlockedChars = CHARACTERS.filter((c) => c.unlockedByDefault).map((c) => c.id);
   const base = {
+    version: 3,
     settings: { ...DEFAULT_SETTINGS, activeMutators: [] },
     controls: JSON.parse(JSON.stringify(DEFAULT_CONTROLS)),
     coins: 150, // Welcome starter purse so players can try the Locker Room right away!
@@ -1055,6 +1109,7 @@ export function loadSaveData() {
     wonCups: [],
     trialsWon: [],
     trophies: [],
+    onboarding: { completed: false, seenModes: [] },
     stats: {
       totalGoals: 0,
       matchesPlayed: 0,
@@ -1065,44 +1120,84 @@ export function loadSaveData() {
     },
   };
 
+  if (!isRecord(value)) return base;
+  const collection = (key, catalog, defaults = []) => [...new Set([
+    ...defaults, ...(Array.isArray(value[key]) ? value[key].filter(id => catalog.some(entry => entry.id === id)) : []),
+  ])];
+  base.settings = normalizeSettings(value.settings);
+  if (Number.isFinite(value.coins) && typeof value.coins === 'number') base.coins = Math.max(0, Math.floor(value.coins));
+  base.unlockedChars = collection('unlockedChars', CHARACTERS, defaultUnlockedChars);
+  base.unlockedBalls = collection('unlockedBalls', BALL_SKINS, ['classic']);
+  base.unlockedExplosions = collection('unlockedExplosions', GOAL_EXPLOSIONS, ['confetti']);
+  base.wonCups = collection('wonCups', GRAND_PRIX_CUPS);
+  base.trialsWon = collection('trialsWon', STRIKER_TRIALS);
+  base.trophies = collection('trophies', TROPHIES);
+  if (!base.settings.partyUnlockAll) {
+    if (!base.unlockedBalls.includes(base.settings.equippedBallSkin)) base.settings.equippedBallSkin = 'classic';
+    if (!base.unlockedExplosions.includes(base.settings.equippedGoalExplosion)) base.settings.equippedGoalExplosion = 'confetti';
+  }
+  for (const [slot, actions] of Object.entries(base.controls)) {
+    for (const action of Object.keys(actions)) {
+      const saved = value.controls?.[slot]?.[action];
+      if (Array.isArray(saved)) {
+        const codes = [...new Set(saved.filter(validKey))].slice(0, 4);
+        if (codes.length) actions[action] = codes;
+      }
+    }
+  }
+  for (const key of Object.keys(base.stats)) {
+    const saved = value.stats?.[key];
+    if (typeof saved === 'number' && Number.isFinite(saved) && saved >= 0) {
+      base.stats[key] = key === 'keepUpBestTime' ? saved : Math.floor(saved);
+    }
+  }
+  if (isRecord(value.onboarding)) {
+    base.onboarding.completed = value.onboarding.completed === true;
+    const modes = ['practice', '1v1_cpu', '1v1_pvp', '2v2', 'cup', 'tourney', 'trial', 'target_blitz', 'keep_up', 'goalie_gauntlet'];
+    base.onboarding.seenModes = [...new Set((Array.isArray(value.onboarding.seenModes) ? value.onboarding.seenModes : []).filter(mode => modes.includes(mode)))];
+  }
+  return base;
+}
+
+export function loadSaveData(onWarning = message => console.warn(message)) {
+  let raw = null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return base;
+    if (typeof localStorage === 'undefined') return normalizeSaveData(null);
+    raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return normalizeSaveData(null);
     const parsed = JSON.parse(raw);
-    return {
-      ...base,
-      ...parsed,
-      settings: { ...base.settings, ...(parsed.settings || {}) },
-      controls: {
-        p1: { ...DEFAULT_CONTROLS.p1, ...(parsed.controls?.p1 || {}) },
-        p2: { ...DEFAULT_CONTROLS.p2, ...(parsed.controls?.p2 || {}) },
-        p3: { ...DEFAULT_CONTROLS.p3, ...(parsed.controls?.p3 || {}) },
-        p4: { ...DEFAULT_CONTROLS.p4, ...(parsed.controls?.p4 || {}) },
-      },
-      unlockedChars: Array.from(new Set([...defaultUnlockedChars, ...(parsed.unlockedChars || [])])),
-      unlockedBalls: Array.from(new Set(['classic', ...(parsed.unlockedBalls || [])])),
-      unlockedExplosions: Array.from(new Set(['confetti', ...(parsed.unlockedExplosions || [])])),
-      wonCups: parsed.wonCups || [],
-      trialsWon: parsed.trialsWon || [],
-      trophies: parsed.trophies || [],
-      stats: { ...base.stats, ...(parsed.stats || {}) },
-    };
-  } catch {
-    return base;
+    if (!isRecord(parsed)) throw new TypeError('The save must contain an object.');
+    const normalized = normalizeSaveData(parsed);
+    if (hasRecoveredFields(parsed, normalized)) {
+      recoverySave = raw;
+      onWarning('Some saved progress fields were invalid. Valid progress was recovered; the original will be backed up.');
+    }
+    return normalized;
+  } catch (error) {
+    recoverySave = raw;
+    onWarning(`Saved progress could not be loaded: ${error.message}. Playing remains available.`);
+    return normalizeSaveData(null);
   }
 }
 
-export function saveData(data) {
+export function saveData(data, onWarning = message => console.warn(message)) {
   try {
+    if (recoverySave !== null) {
+      localStorage.setItem(`${STORAGE_KEY}_recovery`, recoverySave);
+      recoverySave = null;
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch {
-    // Ignore storage quota errors
+    return true;
+  } catch (error) {
+    onWarning(`Progress could not be saved: ${error.message}. Keep this tab open; new progress may be lost on exit.`);
+    return false;
   }
 }
 
 export function getCharacter(id, kitIdx = 0) {
   const base = CHARACTERS.find((c) => c.id === id) || CHARACTERS[0];
-  const kit = base.kits?.[kitIdx % base.kits.length];
+  const index = Number.isInteger(kitIdx) ? ((kitIdx % base.kits.length) + base.kits.length) % base.kits.length : 0;
+  const kit = base.kits?.[index];
   if (!kit) return base;
   return {
     ...base,
@@ -1111,7 +1206,7 @@ export function getCharacter(id, kitIdx = 0) {
     accent: kit.accent,
     aura: kit.aura || base.aura,
     kitName: kit.name,
-    kitIdx: kitIdx % base.kits.length,
+    kitIdx: index,
   };
 }
 

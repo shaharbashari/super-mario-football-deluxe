@@ -2,18 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#090b16" />
   <title>Super Mario Football Deluxe (Kung-Foot 2.0)</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Luckiest+Guy&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./styles.css?v=8b5a9544026d" />
 </head>
-<body>
+<body data-screen="menu">
   <!-- Mobile Rotate-to-Landscape Guidance Overlay -->
   <div id="rotate-overlay" class="rotate-overlay hidden">
     <div class="rotate-card">
@@ -38,20 +35,26 @@
 
   <div id="stage-wrapper">
     <div id="game-container">
-      <canvas id="game-canvas" width="1920" height="1080"></canvas>
-
       <!-- Global Top Utility Bar -->
-      <div id="top-utility-bar">
-        <button id="btn-pause" class="icon-pill hidden" title="Pause (P / Esc)">⏸ PAUSE</button>
-        <button id="btn-fullscreen" class="icon-pill fullscreen-toggle-btn" title="Toggle Fullscreen (F)">⛶ FULLSCREEN</button>
+      <div id="top-utility-bar" role="toolbar" aria-label="Game utilities">
+        <div class="brand-lockup"><span class="brand-ball" aria-hidden="true">⚽</span><span>FOOTBALL <b>DELUXE</b></span><span class="edition-label">LOCAL ARCADE</span></div>
+        <div class="utility-actions">
+        <button id="btn-pause" class="icon-pill hidden" title="Pause (Esc / Start)">⏸ PAUSE</button>
+        <button id="btn-coach" class="icon-pill" title="How to play">? HOW TO PLAY</button>
+        <button id="btn-fullscreen" class="icon-pill fullscreen-toggle-btn" title="Toggle Fullscreen (Alt + Enter)">⛶ FULLSCREEN</button>
         <button id="btn-mute" class="icon-pill" title="Toggle Audio (M)">🔊 SOUND ON</button>
         <button id="btn-top-coins" class="icon-pill coin-pill" title="Open Locker Room & Trophies">🪙 <span id="top-coin-count">150</span> • LOCKER</button>
         <div id="gamepad-indicator" class="gamepad-pill hidden">🎮 1 PAD</div>
+        </div>
       </div>
 
       <!-- Trophy / Unlock Toast Stack -->
-      <div id="trophy-toast-container"></div>
+      <div id="trophy-toast-container" role="status" aria-live="polite"></div>
+      <div id="asset-status" class="asset-status" role="status" aria-live="polite">Preparing the stadium…</div>
 
+      <div id="play-surface">
+      <div id="pitch-viewport">
+      <canvas id="game-canvas" width="1920" height="1080" aria-label="Arcade football pitch. Controls and match status are available outside the canvas.">A browser with Canvas support is required to play.</canvas>
       <!-- In-Match Broadcast Scoreboard HUD -->
       <div id="match-hud" class="hidden">
         <div class="hud-top-wrap">
@@ -89,14 +92,16 @@
               <span class="hype-label" id="hype-label-1">HYPE 0%</span>
             </div>
           </div>
+          <div id="trial-objective" class="objective-pill hidden" role="status"></div>
         </div>
 
-        <div id="controls-toast" class="controls-toast">
-          <span><b>P1:</b> WASD Move/Jump • <b>Space</b> Strike (Up+Space=Lob, Hold=Charge, Down in Air=Ground Pound) • <b>L-Shift</b> Dash • <b>E</b> Item</span>
-          <span class="toast-sep">|</span>
-          <span id="p2-toast-hint"><b>P2:</b> Arrows Move/Jump • <b>Enter</b> Strike (Up+Enter=Lob, Hold=Charge, Down in Air=Ground Pound) • <b>R-Shift</b> Dash • <b>/</b> Item</span>
-        </div>
+        <div id="controls-toast" class="controls-toast" aria-label="Active controls"></div>
       </div>
+      </div>
+      <aside id="practice-coach" class="practice-coach hidden" aria-live="polite">
+        <div><span id="practice-step" class="eyebrow">YOUR FIRST TOUCH</span><h3 id="practice-title"></h3><p id="practice-dialogue"></p><div id="practice-prompts" class="control-prompts"></div></div>
+        <button id="btn-finish-practice" class="secondary-btn">Leave practice</button>
+      </aside>
 
       <!-- Mobile & Tablet Touch Controls Layer -->
       <div id="touch-controls" class="touch-controls-layer hidden">
@@ -138,18 +143,30 @@
           </button>
         </div>
       </div>
+      </div>
 
       <!-- SCREEN 1: MAIN TITLE MENU -->
-      <section id="screen-menu" class="ui-screen active">
+      <section id="screen-menu" class="ui-screen active" aria-label="Main menu">
+        <div class="menu-hero-row">
         <div class="title-hero">
-          <div class="tribute-badge">REIMAGINED FROM S&amp;A GAMES' 2019 CLASSIC • DELUXE 2.0</div>
+          <div class="tribute-badge">THE COUCH IS YOUR STADIUM</div>
           <h1 class="game-logo">
             <span class="logo-top">SUPER MARIO</span>
             <span class="logo-bottom">FOOTBALL DELUXE</span>
           </h1>
-          <p class="game-tagline">12 Iconic Strikers • 7 Hazard Stadiums • 18 Power-Ups • Hyper-Strikes, Parries &amp; Party Modes</p>
+          <p class="game-tagline">Big saves. Ridiculous rallies. One more match.<br>Pick your squad and make the pitch your own.</p>
+          <div class="intro-actions">
+            <button id="btn-start-practice" class="learn-btn">LEARN TO PLAY <span aria-hidden="true">↗</span></button>
+            <span id="menu-input-status" class="connection-label">Keyboard ready · Gamepads welcome</span>
+          </div>
         </div>
-
+        <aside class="hero-feature" aria-label="Game features">
+          <span class="feature-kicker">MATCH NIGHT / DELUXE</span>
+          <div class="feature-copy"><strong>Small pitch.<br>Big moments.</strong><span>1–4 local players · No account needed</span></div>
+          <div class="feature-stats"><span><b>12</b> STRIKERS</span><span><b>07</b> STADIUMS</span><span><b>18</b> POWER-UPS</span></div>
+        </aside>
+        </div>
+        <div class="section-heading"><span>CHOOSE YOUR NEXT MATCH</span><span>PLAY YOUR WAY</span></div>
         <div class="mode-grid deluxe-mode-grid">
           <!-- 1. Solo Exhibition -->
           <button class="mode-card primary quick-mode-btn" data-mode="1v1_cpu">
@@ -230,6 +247,7 @@
           <button id="btn-open-controls" class="dock-btn">🎮 CONTROLS</button>
           <button id="btn-open-codex" class="dock-btn">🍄 CODEX (18)</button>
         </div>
+        <p class="menu-credit">A fan-made local arcade game, inspired by S&amp;A Games' 2019 classic.</p>
       </section>
 
       <!-- SCREEN 2: CHARACTER & STADIUM SELECT -->
@@ -383,6 +401,7 @@
 
           <canvas id="podium-canvas" width="520" height="185"></canvas>
 
+          <div class="results-stats-scroll">
           <table class="stats-table" id="results-stats-table">
             <thead>
               <tr>
@@ -396,6 +415,7 @@
             </thead>
             <tbody id="results-stats-body"></tbody>
           </table>
+          </div>
 
           <div class="results-actions">
             <button id="btn-next-cup" class="kickoff-cta-btn hidden">🏆 NEXT CUP ROUND →</button>
@@ -571,6 +591,24 @@
         </div>
       </div>
 
+      <div id="modal-coach" class="modal-backdrop hidden">
+        <div class="modal-box coach-modal">
+          <div class="modal-header">
+            <span class="eyebrow">SIDELINE COACH</span>
+            <button class="modal-close" data-close="modal-coach" aria-label="Skip briefing">✕</button>
+          </div>
+          <h2 id="coach-title" class="coach-title">Welcome to the pitch.</h2>
+          <p id="coach-dialogue" class="coach-dialogue"></p>
+          <div id="coach-controls" class="coach-controls"></div>
+          <div class="coach-stage"><span id="coach-stage-label" class="eyebrow"></span><p id="coach-stage-tip"></p></div>
+          <p class="coach-extra">Double-jump for height. Hold Strike for power. Press Down in the air for a ground pound.</p>
+          <div class="modal-footer">
+            <button id="btn-coach-practice" class="secondary-btn">Try guided practice</button>
+            <button id="btn-coach-ready" class="kickoff-cta-btn">LET'S PLAY</button>
+          </div>
+        </div>
+      </div>
+
       <!-- OPTIONS MODAL -->
       <div id="modal-options" class="modal-backdrop hidden">
         <div class="modal-box">
@@ -578,6 +616,7 @@
             <h2 class="modal-title">⚙️ MATCH, PHYSICS &amp; FEEL OPTIONS</h2>
             <button class="modal-close" data-close="modal-options">✕</button>
           </div>
+          <p class="modal-note">Match rules apply at the next kickoff. Audio, motion and touch preferences update immediately.</p>
 
           <div class="options-grid">
             <label class="opt-row">
@@ -587,7 +626,7 @@
                 <option value="120">2:00 Classic</option>
                 <option value="180">3:00 Standard</option>
                 <option value="300">5:00 Marathon</option>
-                <option value="0">Unlimited (First-to-Score)</option>
+                <option value="0">No timer (use a score limit)</option>
               </select>
             </label>
 
@@ -669,6 +708,26 @@
               </select>
             </label>
 
+            <label class="opt-row">
+              <span>Motion &amp; flashes</span>
+              <select id="opt-motion"><option value="auto">Follow device preference</option><option value="full">Full arcade effects</option><option value="reduced">Reduced motion</option></select>
+            </label>
+            <label class="opt-row">
+              <span>Coach briefings &amp; tips</span>
+              <input type="checkbox" id="opt-tips" />
+            </label>
+            <label class="opt-row">
+              <span>Music arrangement</span>
+              <select id="opt-music-style"><option value="stadium">Stadium / original groove</option><option value="club">Club / driving remix</option><option value="chill">After hours / mellow</option></select>
+            </label>
+            <label class="opt-row">
+              <span>Effects palette</span>
+              <select id="opt-sound-palette"><option value="arcade">Arcade</option><option value="punchy">Punchy</option><option value="soft">Soft</option></select>
+            </label>
+            <label class="opt-row">
+              <span>Stadium ambience</span>
+              <input type="range" id="opt-vol-ambience" min="0" max="1" step="0.05" />
+            </label>
             <label class="opt-row">
               <span>Master Volume</span>
               <input type="range" id="opt-vol-master" min="0" max="1" step="0.05" />
@@ -762,6 +821,6 @@
   </div>
 
   <!-- Bundled from modular src/*.js via `node build.mjs` so file:// & itch.io both work out of the box -->
-  <script defer src="./dist/bundle.js"></script>
+  <script defer src="./dist/bundle.js?v=0105551a80ad"></script>
 </body>
 </html>
