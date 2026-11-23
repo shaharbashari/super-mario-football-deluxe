@@ -350,7 +350,7 @@ function weddingStriker({ id, name, title, color, accent, traitName, traitDesc, 
     { name: 'Golden Hour', primary: '#e4ad43', secondary: '#493316', accent: '#fff4b5', aura: '#fde68a' },
   ];
   return { ...kits[0], id, name, title, emblem: name[0], traitName, traitDesc, hyperName, hyperStyle,
-    kits, particleColor: accent, voiceBase: 270, voiceStyle: 'hero',
+    kits, kitOverlay: 'wedding_kits', showSelectPortrait: true, particleColor: accent, voiceBase: 270, voiceStyle: 'hero',
     stats: { speed: 1, jump: 1, power: 1, size: 1, weight: 1, ...stats }, displayStats };
 }
 const WEDDING_SQUAD = [
@@ -380,9 +380,8 @@ const WEDDING_SQUAD = [
     displayStats: { speed: 4, jump: 5, power: 4, weight: 2 } }),
 ];
 
-// Enable only with the approved portrait and animation atlas for every squad member.
-const WEDDING_ART_READY = false;
-const CHARACTERS = WEDDING_ART_READY ? [...STANDARD_CHARACTERS, ...WEDDING_SQUAD] : STANDARD_CHARACTERS;
+// Every peer must be able to render an opponent, even if it cannot select that striker.
+const CHARACTERS = [...STANDARD_CHARACTERS, ...WEDDING_SQUAD];
 function rosterForSave(save) {
   return save?.weddingSquadUnlocked === true ? CHARACTERS : STANDARD_CHARACTERS;
 }
@@ -1258,7 +1257,7 @@ function getArena(id) {
   return ARENAS.find((a) => a.id === id) || ARENAS[0];
 }
 function isCharUnlocked(save, charId) {
-  if (WEDDING_SQUAD.some(c => c.id === charId)) return WEDDING_ART_READY && save?.weddingSquadUnlocked === true;
+  if (WEDDING_SQUAD.some(c => c.id === charId)) return save?.weddingSquadUnlocked === true;
   if (save?.settings?.partyUnlockAll) return true;
   return Boolean(save?.unlockedChars?.includes(charId));
 }
@@ -3104,7 +3103,7 @@ function trialProgress(match) {
 
 
 // === src/online-state.js ===
-const ONLINE_VERSION = 2;
+const ONLINE_VERSION = 3;
 const ONLINE_PREFIX = `smfd-room-v${ONLINE_VERSION}-`;
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const ONLINE_INPUT_KEYS = ['left', 'right', 'up', 'down', 'jumpHeld', 'kickDown', 'lobDown',
@@ -3932,12 +3931,8 @@ const CHAR_SPRITE_METRICS = {
   ...Object.fromEntries(WEDDING_SQUAD.map(({ id }) => [id, { drawSize: 172, footY: 0.968, airShiftY: 3 }])),
 };
 
-// Curated GPU CSS-Filter recipes for Kit 1 & Kit 2 across all 12 strikers (preserves crisp ink & cel shading!)
+// Alternate kit filters for the regular roster.
 const KIT_FILTER_SPECS = {
-  ...Object.fromEntries(WEDDING_SQUAD.flatMap(({ id }) => [
-    [`${id}:1`, { filter: 'grayscale(1) brightness(1.18)', glaze: '#cbd5e1', glazeAlpha: 0.12 }],
-    [`${id}:2`, { filter: 'sepia(1) saturate(1.6)', glaze: '#f9cb69', glazeAlpha: 0.12 }],
-  ])),
   'mario:1': { filter: 'hue-rotate(-12deg) saturate(1.15) brightness(1.18) contrast(1.06)', glaze: '#ffffff', glazeAlpha: 0.16 },
   'mario:2': { filter: 'hue-rotate(46deg) saturate(1.38) brightness(1.08)', glaze: '#fde047', glazeAlpha: 0.1 },
   'luigi:1': { filter: 'hue-rotate(44deg) saturate(1.18) brightness(1.10)', glaze: '#2dd4bf', glazeAlpha: 0.1 },
@@ -4070,6 +4065,14 @@ class ArtRenderer {
       ctx.drawImage(sheet, col * cellW, row * cellH, cellW, cellH, x, y, width, height);
       return;
     }
+    // Clothing-only overlays keep the illustrated faces unchanged across kits.
+    const overlayKey = !color && kit && ch.kitOverlay;
+    const overlay = overlayKey && this.sprites[overlayKey];
+    if (overlayKey && !overlay) {
+      this._requestImage(overlayKey, `./assets/sprites/${overlayKey}.png`, this.sprites);
+      ctx.drawImage(sheet, col * cellW, row * cellH, cellW, cellH, x, y, width, height);
+      return; // Do not cache a home frame under the away kit while the overlay is loading.
+    }
     const key = `${ch.id}:${color || kit}:${row}:${col}`;
     let frame = this._frameCache.get(key);
     if (frame) {
@@ -4085,6 +4088,10 @@ class ArtRenderer {
       if (!color && spec && 'filter' in off.ctx) off.ctx.filter = spec.filter;
       off.ctx.drawImage(sheet, col * cellW, row * cellH, cellW, cellH, 0, 0, cellW, cellH);
       off.ctx.filter = 'none';
+      if (overlay) {
+        const w = overlay.naturalWidth / 24, h = overlay.naturalHeight / 12;
+        off.ctx.drawImage(overlay, col * w, ((kit - 1) * 6 + row) * h, w, h, 0, 0, cellW, cellH);
+      }
       if (color || spec?.glaze) {
         off.ctx.globalCompositeOperation = color ? 'source-in' : 'source-atop';
         off.ctx.globalAlpha = color ? 1 : spec.glazeAlpha;
@@ -9935,6 +9942,7 @@ class OnlineController {
 
   _updateKits() {
     const character = getCharacter(this._element('online-char').value);
+    this._element('online-striker-portrait').src = `./assets/sprites/portrait_${character.id}.png`;
     const previous = this._element('online-kit').value || '0';
     this._element('online-kit').replaceChildren(...character.kits.map((kit, index) => {
       const option = document.createElement('option');
@@ -10581,9 +10589,7 @@ class SuperKickKingdomApp {
           this._persist();
           this.audio.playClick();
         }
-        codeStatus.textContent = !WEDDING_ART_READY
-          ? 'Code accepted. The six wedding strikers will appear in character select when their artwork is ready.'
-          : result === 'already-unlocked' ? 'The wedding squad is already on your roster.'
+        codeStatus.textContent = result === 'already-unlocked' ? 'The wedding squad is already on your roster.'
           : 'Wedding squad unlocked! All six strikers are ready for local and online play.';
       }
     });
@@ -12194,6 +12200,14 @@ class SuperKickKingdomApp {
         (this.selectedMode === '2v2' && ['4p', '3p', 'duel'].includes(this.twoVsTwoFormat)));
 
     document.getElementById(`char${slot}-name`).textContent = ch.name;
+    const portrait = document.getElementById(`fighter-portrait-${slot}`);
+    portrait.hidden = !baseChar.showSelectPortrait;
+    if (!portrait.hidden) {
+      const src = `./assets/sprites/portrait_${baseChar.id}.png`;
+      if (portrait.getAttribute('src') !== src) portrait.src = src;
+    } else {
+      portrait.removeAttribute('src');
+    }
     document.getElementById(`btn-kit-${slot}`).textContent = `🎨 ${ch.kitName || 'Kit 1'}`;
     document.getElementById(`char${slot}-title`).textContent = ch.title;
     document.getElementById(`char${slot}-trait`).textContent = ch.traitName;

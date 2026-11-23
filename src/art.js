@@ -58,12 +58,8 @@ export const CHAR_SPRITE_METRICS = {
   ...Object.fromEntries(WEDDING_SQUAD.map(({ id }) => [id, { drawSize: 172, footY: 0.968, airShiftY: 3 }])),
 };
 
-// Curated GPU CSS-Filter recipes for Kit 1 & Kit 2 across all 12 strikers (preserves crisp ink & cel shading!)
+// Alternate kit filters for the regular roster.
 const KIT_FILTER_SPECS = {
-  ...Object.fromEntries(WEDDING_SQUAD.flatMap(({ id }) => [
-    [`${id}:1`, { filter: 'grayscale(1) brightness(1.18)', glaze: '#cbd5e1', glazeAlpha: 0.12 }],
-    [`${id}:2`, { filter: 'sepia(1) saturate(1.6)', glaze: '#f9cb69', glazeAlpha: 0.12 }],
-  ])),
   'mario:1': { filter: 'hue-rotate(-12deg) saturate(1.15) brightness(1.18) contrast(1.06)', glaze: '#ffffff', glazeAlpha: 0.16 },
   'mario:2': { filter: 'hue-rotate(46deg) saturate(1.38) brightness(1.08)', glaze: '#fde047', glazeAlpha: 0.1 },
   'luigi:1': { filter: 'hue-rotate(44deg) saturate(1.18) brightness(1.10)', glaze: '#2dd4bf', glazeAlpha: 0.1 },
@@ -197,6 +193,14 @@ export class ArtRenderer {
       ctx.drawImage(sheet, col * cellW, row * cellH, cellW, cellH, x, y, width, height);
       return;
     }
+    // Clothing-only overlays keep the illustrated faces unchanged across kits.
+    const overlayKey = !color && kit && ch.kitOverlay;
+    const overlay = overlayKey && this.sprites[overlayKey];
+    if (overlayKey && !overlay) {
+      this._requestImage(overlayKey, `./assets/sprites/${overlayKey}.png`, this.sprites);
+      ctx.drawImage(sheet, col * cellW, row * cellH, cellW, cellH, x, y, width, height);
+      return; // Do not cache a home frame under the away kit while the overlay is loading.
+    }
     const key = `${ch.id}:${color || kit}:${row}:${col}`;
     let frame = this._frameCache.get(key);
     if (frame) {
@@ -212,6 +216,10 @@ export class ArtRenderer {
       if (!color && spec && 'filter' in off.ctx) off.ctx.filter = spec.filter;
       off.ctx.drawImage(sheet, col * cellW, row * cellH, cellW, cellH, 0, 0, cellW, cellH);
       off.ctx.filter = 'none';
+      if (overlay) {
+        const w = overlay.naturalWidth / 24, h = overlay.naturalHeight / 12;
+        off.ctx.drawImage(overlay, col * w, ((kit - 1) * 6 + row) * h, w, h, 0, 0, cellW, cellH);
+      }
       if (color || spec?.glaze) {
         off.ctx.globalCompositeOperation = color ? 'source-in' : 'source-atop';
         off.ctx.globalAlpha = color ? 1 : spec.glazeAlpha;

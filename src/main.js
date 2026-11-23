@@ -4,7 +4,6 @@ import {
   VIRTUAL_WIDTH,
   VIRTUAL_HEIGHT,
   STANDARD_CHARACTERS,
-  WEDDING_ART_READY,
   rosterForSave,
   redeemRosterCode,
   ARENAS,
@@ -389,9 +388,7 @@ export class SuperKickKingdomApp {
           this._persist();
           this.audio.playClick();
         }
-        codeStatus.textContent = !WEDDING_ART_READY
-          ? 'Code accepted. The six wedding strikers will appear in character select when their artwork is ready.'
-          : result === 'already-unlocked' ? 'The wedding squad is already on your roster.'
+        codeStatus.textContent = result === 'already-unlocked' ? 'The wedding squad is already on your roster.'
           : 'Wedding squad unlocked! All six strikers are ready for local and online play.';
       }
     });
@@ -2002,6 +1999,14 @@ export class SuperKickKingdomApp {
         (this.selectedMode === '2v2' && ['4p', '3p', 'duel'].includes(this.twoVsTwoFormat)));
 
     document.getElementById(`char${slot}-name`).textContent = ch.name;
+    const portrait = document.getElementById(`fighter-portrait-${slot}`);
+    portrait.hidden = !baseChar.showSelectPortrait;
+    if (!portrait.hidden) {
+      const src = `./assets/sprites/portrait_${baseChar.id}.png`;
+      if (portrait.getAttribute('src') !== src) portrait.src = src;
+    } else {
+      portrait.removeAttribute('src');
+    }
     document.getElementById(`btn-kit-${slot}`).textContent = `🎨 ${ch.kitName || 'Kit 1'}`;
     document.getElementById(`char${slot}-title`).textContent = ch.title;
     document.getElementById(`char${slot}-trait`).textContent = ch.traitName;

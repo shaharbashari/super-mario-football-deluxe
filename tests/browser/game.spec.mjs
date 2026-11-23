@@ -27,8 +27,9 @@ async function start(page, mode = '1v1_cpu') {
   await page.waitForFunction(() => app.art.pendingAssets === 0);
 }
 
-test('roster code entry accepts the literal apostrophe and persists without exposing unavailable art', async ({ page }) => {
+test('the wedding code unlocks six strikers with front portraits and animated kit previews', async ({ page }, info) => {
   await page.goto('/');
+  const ids = ['livne', 'dor', 'shahar', 'tal', 'ziv', 'dani'];
   const button = page.getByRole('button', { name: 'Enter code', exact: true });
   await button.click();
   const field = page.getByLabel('Roster unlock code');
@@ -38,21 +39,71 @@ test('roster code entry accepts the literal apostrophe and persists without expo
   await expect(page.locator('#roster-code-status')).toContainText('not recognized');
   await field.fill("LIVNE-GETTING-MARRIED'");
   await field.press('Enter');
-  await expect(page.locator('#roster-code-status')).toHaveText(/Code accepted|Wedding squad unlocked/);
+  await expect(page.locator('#roster-code-status')).toContainText('Wedding squad unlocked');
   await page.keyboard.press('Escape');
   await expect(button).toBeFocused();
   await page.reload();
   await page.waitForFunction(() => window.app?.save.weddingSquadUnlocked);
-  const { count, secretIds } = await page.evaluate(async () => {
-    const { WEDDING_ART_READY, WEDDING_SQUAD } = await import('/src/config.js');
-    return { count: WEDDING_ART_READY ? 18 : 12, secretIds: WEDDING_ART_READY ? WEDDING_SQUAD.map(c => c.id) : [] };
-  });
   await page.locator('#btn-mode-online').click();
-  await expect(page.locator('#online-char option')).toHaveCount(count);
-  for (const id of secretIds) await expect(page.locator(`#online-char option[value="${id}"]`)).toBeEnabled();
+  await expect(page.locator('#online-char option')).toHaveCount(18);
+  for (const id of ids) await expect(page.locator(`#online-char option[value="${id}"]`)).toBeEnabled();
+  await page.locator('#online-char').selectOption('shahar');
+  await expect(page.locator('#online-striker-portrait')).toHaveAttribute('src', './assets/sprites/portrait_shahar.png');
+  await page.locator('#online-striker-portrait').evaluate(img => img.decode());
   await page.locator('[data-close="modal-online"]').click();
-  await page.locator('[data-mode="1v1_cpu"]').click();
-  await expect(page.locator('#roster-strip-0 button')).toHaveCount(count);
+  await page.locator('[data-mode="1v1_pvp"]').click();
+  await expect(page.locator('#roster-strip-0 button')).toHaveCount(18);
+  const front = page.locator('#fighter-portrait-0');
+  await expect(front).toBeHidden();
+  for (const id of ids) {
+    const chip = page.locator(`#roster-0-${id}`);
+    await chip.click();
+    await expect(front).toBeVisible();
+    await expect(front).toHaveAttribute('src', `./assets/sprites/portrait_${id}.png`);
+    await expect(chip).toHaveCSS('background-image', new RegExp(`portrait_${id}\\.png`));
+    await front.evaluate(img => img.decode());
+    await page.waitForFunction(id => app.art.sprites[`char_${id}`]?.naturalWidth === 3072, id);
+  }
+  const otherFront = page.locator('#fighter-portrait-1');
+  await page.locator('#roster-1-livne').click();
+  await expect(otherFront).toHaveAttribute('src', './assets/sprites/portrait_livne.png');
+  await expect(otherFront).toBeVisible();
+  await otherFront.evaluate(img => img.decode());
+  const hero = await front.boundingBox(), kitPreview = await page.locator('#preview-canvas-0').boundingBox();
+  expect(hero.width).toBeGreaterThan(kitPreview.width);
+  await page.locator('.select-main-row').screenshot({ path: info.outputPath('front-facing-character-select.png') });
+  await page.locator('#roster-1-mario').click();
+  await expect(otherFront).toBeHidden();
+  await expect(front).toBeVisible();
+  await page.locator('#btn-kit-0').click();
+  await expect(front).toHaveAttribute('src', './assets/sprites/portrait_dani.png');
+  await page.waitForFunction(() => !!app.art.sprites.wedding_kits);
+  const differences = await page.evaluate(async () => {
+    const { getCharacter } = await import('/src/config.js');
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const frames = [0, 1, 2].map(kit => {
+      ctx.clearRect(0, 0, 128, 128);
+      app.art._drawCharFrame(ctx, getCharacter('dani', kit), 0, 0, 0, 0, 128, 128);
+      return ctx.getImageData(0, 0, 128, 128).data;
+    });
+    return [[0, 1], [0, 2], [1, 2]].map(([a, b]) => {
+      let face = 0, uniform = 0;
+      for (let i = 0; i < frames[a].length; i += 4) {
+        if (frames[a][i + 3] < 128 || Math.abs(frames[a][i] - frames[b][i]) +
+          Math.abs(frames[a][i + 1] - frames[b][i + 1]) < 20) continue;
+        if (i < 50 * 128 * 4) face++; else uniform++;
+      }
+      return { face, uniform };
+    });
+  });
+  for (const { face, uniform } of differences) {
+    expect(face).toBe(0);
+    expect(uniform).toBeGreaterThan(80);
+  }
+  await page.locator('#btn-start-match').click();
+  await page.waitForFunction(() => app.match?.players[0].char.id === 'dani');
   expect(await page.evaluate(() => app.art.failedAssets)).toEqual([]);
 });
 

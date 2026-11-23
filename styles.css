@@ -160,7 +160,10 @@ body[data-screen="match"] #btn-top-coins { display: none; }
 .panel-team-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; width: 100%; font-size: 9px; font-weight: 800; color: #aebfd3; letter-spacing: .7px; }
 .panel-header-actions { display: flex; flex-wrap: wrap; gap: 5px; }
 .puppet-stage-row { display: flex; align-items: center; justify-content: center; width: 100%; gap: 8px; min-width: 0; }
-.puppet-stage-row canvas { width: min(58%, 170px); height: auto; aspect-ratio: 260 / 250; }
+.fighter-preview { position: relative; width: min(58%, 170px); aspect-ratio: 260 / 250; min-width: 0; }
+.fighter-preview canvas { display: block; width: 100%; height: auto; }
+.fighter-portrait { position: absolute; inset: 0 auto auto 0; width: 84%; height: 100%; object-fit: contain; background: radial-gradient(ellipse, #38506999, transparent 70%); }
+.fighter-portrait:not([hidden]) + canvas { position: absolute; width: 48%; right: 0; bottom: 0; }
 .cycle-arrow { border: 1px solid #53667c; background: #23364b; border-radius: 50%; width: 40px; height: 40px; flex-shrink: 0; font-size: 12px; }
 .cycle-arrow:hover { border-color: var(--gold); background: #35485c; }
 .fighter-name-row { display: flex; align-items: center; justify-content: center; gap: 9px; flex-wrap: wrap; }
@@ -401,7 +404,7 @@ body.fullscreen-mode #stage-wrapper { position: fixed; inset: 0; }
   .center-setup-col > .kickoff-cta-btn { grid-column: 1 / -1; }
   .fighter-panel { height: 100%; }
   .roster-strip { grid-template-columns: repeat(6, minmax(0, 1fr)); max-width: 360px; }
-  .puppet-stage-row canvas { width: 145px; }
+  .fighter-preview { width: 145px; }
 }
 @media (max-width: 900px) {
   :root { --rail-height: 58px; }
@@ -440,7 +443,7 @@ body.fullscreen-mode #stage-wrapper { position: fixed; inset: 0; }
   .select-main-row, .center-setup-col { grid-template-columns: 1fr; }
   .center-setup-col { grid-row: auto; grid-column: auto; }
   .fighter-panel { gap: 10px; }
-  .puppet-stage-row canvas { width: 150px; }
+  .fighter-preview { width: 150px; }
   .roster-chip { min-height: 44px; }
   .cups-grid, .trials-grid, .mutators-grid, .locker-grid, .codex-grid, .controls-columns, .options-grid { grid-template-columns: 1fr; }
   .xinput-map-grid { grid-template-columns: 1fr; }
@@ -503,6 +506,8 @@ body[data-motion="reduced"] *, body[data-motion="reduced"] *::before, body[data-
 }
 .online-pick, .online-rules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .online-pick { margin-bottom: 20px; }
+.online-striker-picker { display: flex; align-items: center; gap: 7px; }
+.online-striker-picker img { flex: none; object-fit: contain; border-radius: 7px; background: #192f40; }
 .online-modal label { display: flex; flex-direction: column; gap: 6px; color: #b9c9de; font-size: 12px; min-width: 0; }
 .online-modal input:not([type="checkbox"]), .online-modal select, #roster-code { width: 100%; min-width: 0; border: 1px solid #536b84; border-radius: 7px; background: #0c1b2b; color: #f1e7d0; padding: 10px; min-height: 42px; }
 #roster-code { margin-top: 6px; }

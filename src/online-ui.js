@@ -157,6 +157,7 @@ export class OnlineController {
 
   _updateKits() {
     const character = getCharacter(this._element('online-char').value);
+    this._element('online-striker-portrait').src = `./assets/sprites/portrait_${character.id}.png`;
     const previous = this._element('online-kit').value || '0';
     this._element('online-kit').replaceChildren(...character.kits.map((kit, index) => {
       const option = document.createElement('option');

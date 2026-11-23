@@ -1,12 +1,18 @@
 import { test, expect } from '@playwright/test';
 
-async function player(browser, name, errors, charId = 'mario') {
+async function player(browser, name, errors, charId = 'mario', rosterCode) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(`${name}: ${error.message}`));
   await page.addInitScript(() => localStorage.setItem('super_kick_kingdom_deluxe_v2', JSON.stringify({ settings: { muted: true, showTips: false } })));
   await page.goto('http://127.0.0.1:8766/');
   await page.waitForFunction(() => window.app && app.art.pendingAssets === 0);
+  if (rosterCode) {
+    await page.locator('#btn-enter-code').click();
+    await page.locator('#roster-code').fill(rosterCode);
+    await page.locator('#roster-code').press('Enter');
+    await page.locator('[data-close="modal-roster-code"]').click();
+  }
   await page.locator('#btn-mode-online').click();
   await page.locator('#online-name').fill(name);
   await page.locator('#online-char').selectOption(charId);
@@ -33,8 +39,10 @@ async function ready(page) {
 test('real room-code 1v1 synchronizes input, pauses, results, rematches and disconnects', async ({ browser }, info) => {
   const errors = [];
   const host = await player(browser, 'Host', errors);
-  const guest = await player(browser, 'Guest', errors, 'luigi');
+  const guest = await player(browser, 'Guest', errors, 'livne', "LIVNE-GETTING-MARRIED'");
   try {
+    await guest.page.locator('#online-kit').selectOption('1');
+    await expect(host.page.locator('#online-char option[value="livne"]')).toHaveCount(0);
     await host.page.evaluate(() => { app._startPractice(); app.online.open(); });
     const code = await create(host.page);
     await join(guest.page, code);
@@ -47,6 +55,8 @@ test('real room-code 1v1 synchronizes input, pauses, results, rematches and disc
     await host.page.locator('#online-start').click();
     await host.page.waitForFunction(() => app.match?.phase === 'playing');
     await guest.page.waitForFunction(() => app.match?.phase === 'playing');
+    await host.page.waitForFunction(() => app.match.players[1].char.id === 'livne' &&
+      app.match.players[1].char.kitIdx === 1 && !!app.art.sprites.char_livne && !!app.art.sprites.wedding_kits);
     await expect(host.page.locator('#practice-coach')).toBeHidden();
     await expect(guest.page.locator('#controls-toast')).toContainText('P2');
     await guest.page.locator('#btn-coach').click();

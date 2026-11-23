@@ -347,7 +347,7 @@ function weddingStriker({ id, name, title, color, accent, traitName, traitDesc, 
     { name: 'Golden Hour', primary: '#e4ad43', secondary: '#493316', accent: '#fff4b5', aura: '#fde68a' },
   ];
   return { ...kits[0], id, name, title, emblem: name[0], traitName, traitDesc, hyperName, hyperStyle,
-    kits, particleColor: accent, voiceBase: 270, voiceStyle: 'hero',
+    kits, kitOverlay: 'wedding_kits', showSelectPortrait: true, particleColor: accent, voiceBase: 270, voiceStyle: 'hero',
     stats: { speed: 1, jump: 1, power: 1, size: 1, weight: 1, ...stats }, displayStats };
 }
 
@@ -378,9 +378,8 @@ export const WEDDING_SQUAD = [
     displayStats: { speed: 4, jump: 5, power: 4, weight: 2 } }),
 ];
 
-// Enable only with the approved portrait and animation atlas for every squad member.
-export const WEDDING_ART_READY = false;
-export const CHARACTERS = WEDDING_ART_READY ? [...STANDARD_CHARACTERS, ...WEDDING_SQUAD] : STANDARD_CHARACTERS;
+// Every peer must be able to render an opponent, even if it cannot select that striker.
+export const CHARACTERS = [...STANDARD_CHARACTERS, ...WEDDING_SQUAD];
 export function rosterForSave(save) {
   return save?.weddingSquadUnlocked === true ? CHARACTERS : STANDARD_CHARACTERS;
 }
@@ -1277,7 +1276,7 @@ export function getArena(id) {
 }
 
 export function isCharUnlocked(save, charId) {
-  if (WEDDING_SQUAD.some(c => c.id === charId)) return WEDDING_ART_READY && save?.weddingSquadUnlocked === true;
+  if (WEDDING_SQUAD.some(c => c.id === charId)) return save?.weddingSquadUnlocked === true;
   if (save?.settings?.partyUnlockAll) return true;
   return Boolean(save?.unlockedChars?.includes(charId));
 }

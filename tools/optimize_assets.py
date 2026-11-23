@@ -9,9 +9,22 @@ ROOT = Path(__file__).resolve().parents[1]
 CHARACTERS = (
     "mario", "luigi", "peach", "yoshi", "wario", "bowser",
     "waluigi", "toad", "donkey_kong", "rosalina", "king_boo", "bowser_jr",
+    "livne", "dani", "dor", "shahar", "tal", "ziv",
 )
 FRAME_COUNTS = (24, 24, 16, 12, 12, 16)
 SIZE = (3072, 768)
+
+
+def validate_frames(path, cell, counts):
+    with Image.open(path) as atlas:
+        if atlas.size != (24 * cell, len(counts) * cell) or atlas.mode != "RGBA":
+            raise ValueError(f"{path.name}: unexpected frame layout or missing alpha")
+        alpha = atlas.getchannel("A")
+        for row, count in enumerate(counts):
+            for column in range(count):
+                box = (column * cell, row * cell, (column + 1) * cell, (row + 1) * cell)
+                if alpha.crop(box).getbbox() is None:
+                    raise ValueError(f"{path.name}: empty frame {row}:{column}")
 
 
 def main():
@@ -30,19 +43,14 @@ def main():
                 if args.check:
                     raise ValueError(f"{path.name}: run this tool without --check to optimize")
                 source.resize(SIZE, Image.Resampling.LANCZOS).save(path, optimize=True)
-        with Image.open(path) as atlas:
-            alpha = atlas.getchannel("A")
-            for row, count in enumerate(FRAME_COUNTS):
-                for column in range(count):
-                    box = (column * 128, row * 128, (column + 1) * 128, (row + 1) * 128)
-                    if alpha.crop(box).getbbox() is None:
-                        raise ValueError(f"{path.name}: empty frame {row}:{column}")
+        validate_frames(path, 128, FRAME_COUNTS)
         after += path.stat().st_size
+    validate_frames(ROOT / "assets" / "sprites" / "wedding_kits.png", 64, FRAME_COUNTS * 2)
     for path in (ROOT / "assets").rglob("*"):
         if path.suffix.lower() in (".png", ".jpg"):
             with Image.open(path) as image:
                 image.load()
-    print(f"Validated 12 atlases / {sum(FRAME_COUNTS) * len(CHARACTERS)} used frames and all images.")
+    print(f"Validated {len(CHARACTERS)} character atlases / {sum(FRAME_COUNTS) * len(CHARACTERS)} used frames, kit overlays and all images.")
     print(f"Runtime character PNGs: {before:,} -> {after:,} bytes")
     print("Decoded character memory: 9 MiB per sheet; at most 6 recent sheets retained.")
 

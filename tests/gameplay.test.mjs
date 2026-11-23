@@ -138,7 +138,7 @@ test('trial goals, party isolation and lava contacts enforce the advertised obje
   assert.equal(lavaMatch.getSummary().trialSuccess, false);
 });
 
-test('stun and ground-pound animation clocks advance for all twelve characters', () => {
+test('stun and ground-pound animation clocks advance for the entire roster', () => {
   for (const character of CHARACTERS) {
     const match = make('meadow', { playersConfig: [{ charId: character.id, team: 0 }] });
     const player = match.players[0];

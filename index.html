@@ -8,7 +8,7 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#090b16" />
   <title>Super Mario Football Deluxe (Kung-Foot 2.0)</title>
-  <link rel="stylesheet" href="./styles.css?v=e1b5934330de" />
+  <link rel="stylesheet" href="./styles.css?v=3c484c9e61b5" />
 </head>
 <body data-screen="menu">
   <!-- Mobile Rotate-to-Landscape Guidance Overlay -->
@@ -280,7 +280,10 @@
             </div>
             <div class="puppet-stage-row">
               <button class="cycle-arrow" data-slot="0" data-dir="-1">◀</button>
-              <canvas id="preview-canvas-0" width="260" height="250"></canvas>
+              <div class="fighter-preview">
+                <img id="fighter-portrait-0" class="fighter-portrait" alt="" hidden />
+                <canvas id="preview-canvas-0" width="260" height="250"></canvas>
+              </div>
               <button class="cycle-arrow" data-slot="0" data-dir="1">▶</button>
             </div>
             <div class="fighter-name-row">
@@ -373,7 +376,10 @@
             </div>
             <div class="puppet-stage-row">
               <button class="cycle-arrow" data-slot="1" data-dir="-1">◀</button>
-              <canvas id="preview-canvas-1" width="260" height="250"></canvas>
+              <div class="fighter-preview">
+                <img id="fighter-portrait-1" class="fighter-portrait" alt="" hidden />
+                <canvas id="preview-canvas-1" width="260" height="250"></canvas>
+              </div>
               <button class="cycle-arrow" data-slot="1" data-dir="1">▶</button>
             </div>
             <div class="fighter-name-row">
@@ -616,7 +622,7 @@
           <p class="modal-note">One striker per device, using your P1 keyboard, gamepad or touch controls. The host keeps this tab open. Online friendlies do not award coins or trophies.</p>
           <div id="online-player-pick" class="online-pick">
             <label>Nickname <input id="online-name" type="text" maxlength="20" placeholder="Player" autocomplete="off" /></label>
-            <label>Striker <select id="online-char"></select></label>
+            <label>Striker <span class="online-striker-picker"><img id="online-striker-portrait" width="42" height="42" alt="" /><select id="online-char"></select></span></label>
             <label>Kit <select id="online-kit"></select></label>
           </div>
           <div id="online-entry">
@@ -890,6 +896,6 @@
 
   <!-- Bundled from modular src/*.js via `node build.mjs` so file:// & itch.io both work out of the box -->
   <script defer src="./dist/peerjs.min.js?v=7604d8c31bec"></script>
-  <script defer src="./dist/bundle.js?v=16d7923c11b9"></script>
+  <script defer src="./dist/bundle.js?v=b2d4a7f1e823"></script>
 </body>
 </html>

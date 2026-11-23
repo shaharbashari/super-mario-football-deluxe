@@ -7,14 +7,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Script } from 'node:vm';
 import { createHash } from 'node:crypto';
-import { WEDDING_ART_READY, WEDDING_SQUAD } from './src/config.js';
+import { WEDDING_SQUAD } from './src/config.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-if (WEDDING_ART_READY) {
-  for (const { id } of WEDDING_SQUAD) for (const prefix of ['char', 'portrait']) {
-    const asset = `assets/sprites/${prefix}_${id}.png`;
-    if (!fs.existsSync(path.join(root, asset))) throw new Error(`Wedding roster is enabled but ${asset} is missing.`);
-  }
+for (const key of new Set(WEDDING_SQUAD.flatMap(({ id, kitOverlay }) => [`char_${id}`, `portrait_${id}`, kitOverlay]))) {
+  const asset = `assets/sprites/${key}.png`;
+  if (!fs.existsSync(path.join(root, asset))) throw new Error(`Missing wedding squad artwork: ${asset}`);
 }
 const order = [
   'src/config.js',

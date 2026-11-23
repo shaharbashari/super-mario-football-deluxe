@@ -71,9 +71,9 @@ control. Dedicated hosting/relay and rollback prediction remain future options.
 
 ## What's included
 
-- 12 strikers with three kits each, six ball skins, six goal effects and
-  26 persistent trophies. Six strikers unlock through coins/cups; Party Unlock
-  All remains available for local sessions.
+- 12 regular strikers and six code-only guest strikers, with three kits per
+  player, six ball skins, six goal effects and 26 persistent trophies. Six
+  regular strikers unlock through coins/cups; Party Unlock All remains available.
 - Seven stadiums plus a random selector, 18 power-ups and nine party mutators.
 - Solo CPU duels, couch versus, five 2v2 squad formats, four Grand Prix cups
   with solo/co-op play, 4/8-entry tournaments, eight trials and three arcade
@@ -147,10 +147,11 @@ valid unlocks survive recovery. Invalid save data is backed up under the
 failures are reported visibly. Browser profiles and `file://` versus HTTP
 origins may have separate saves; there is no cloud synchronization.
 
-**Enter code** on the main menu saves a roster unlock on this browser, not in
-the online room. The six wedding strikers are held back until their artwork is
-approved. A code redeemed now will still count when the squad is released.
-Party Unlock All, coins and the Full Squad trophy only cover the regular roster.
+Use **Enter code** on the main menu to redeem a roster code. The wedding code
+unlocks six strikers for local and online play and is saved per browser. A
+previously redeemed code still works. Other online players can see your pick
+without unlocking it themselves. Party Unlock All, coins and the Full Squad
+trophy only cover the regular roster.
 
 ## Development
 
@@ -229,11 +230,13 @@ This keeps the existing poses; it does not invent new hand-drawn frames.
 The original twelve runtime PNGs went from **59.9 MB to 17.7 MB**, and decoded
 memory per sheet went from **36 MiB to 9 MiB**.
 
-For the wedding squad, install the approved `char_<id>.png` atlases and
-`portrait_<id>.png` portraits in `assets/sprites` for all six IDs in
-`WEDDING_SQUAD`, then enable `WEDDING_ART_READY` in `src/config.js`. Do not
-include the original photos. Keep the wire version/peer namespace compatible
-with the roster both peers can render.
+The wedding squad's approved front-facing Gemini caricatures appear in the
+roster thumbnails, on both character-select cards and in the online picker.
+Each card retains a smaller animated kit preview. Matches use the separate
+three-quarter drawing, mirrored only for leftward play. Silver and gold jerseys share `wedding_kits.png`:
+two six-row blocks of 64-pixel cells aligned with the character frames, so kit
+changes do not recolor faces. Only finished illustrations ship, not the
+personal reference photos. No image-generation service is used at runtime.
 
 The six root-level Swift tools are historical, macOS-only asset experiments.
 They use Apple graphics frameworks and several incompatible atlas layouts;

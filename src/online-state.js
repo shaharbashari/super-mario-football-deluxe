@@ -1,6 +1,6 @@
 import { CHARACTERS, ARENAS, ITEMS, DEFAULT_SETTINGS, BALL_SKINS, GOAL_EXPLOSIONS, getCharacter, getArena } from './config.js';
 
-export const ONLINE_VERSION = 2;
+export const ONLINE_VERSION = 3;
 export const ONLINE_PREFIX = `smfd-room-v${ONLINE_VERSION}-`;
 export const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const ONLINE_INPUT_KEYS = ['left', 'right', 'up', 'down', 'jumpHeld', 'kickDown', 'lobDown',

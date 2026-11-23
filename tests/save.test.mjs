@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeSaveData, normalizeSettings, loadSaveData, saveData, STORAGE_KEY,
-  redeemRosterCode, rosterForSave, WEDDING_ART_READY, WEDDING_SQUAD, isCharUnlocked } from '../src/config.js';
+  redeemRosterCode, rosterForSave, WEDDING_SQUAD, isCharUnlocked } from '../src/config.js';
 
 test('wedding code is local, survives save recovery and is independent of coins and Party Unlock All', () => {
   const save = normalizeSaveData({ settings: { partyUnlockAll: true }, weddingSquadUnlocked: 'yes' });
@@ -9,6 +9,7 @@ test('wedding code is local, survives save recovery and is independent of coins 
   assert.equal(redeemRosterCode(save, 'LIVNE-GETTING-MARRIED'), 'invalid');
   assert.deepEqual(save, before);
   assert.ok(WEDDING_SQUAD.every(({ id }) => !isCharUnlocked(save, id)));
+  assert.equal(rosterForSave(save).length, 12);
   assert.equal(redeemRosterCode(save, "LIVNE-GETTING-MARRIED'"), 'unlocked');
   const reloaded = normalizeSaveData(JSON.parse(JSON.stringify(save)));
   assert.equal(redeemRosterCode(reloaded, "  livne-getting-married'  "), 'already-unlocked');
@@ -16,8 +17,8 @@ test('wedding code is local, survives save recovery and is independent of coins 
   assert.deepEqual(reloaded.unlockedChars, before.unlockedChars);
   assert.equal(reloaded.coins, before.coins);
   for (const { id } of WEDDING_SQUAD) {
-    assert.equal(rosterForSave(reloaded).some(c => c.id === id), WEDDING_ART_READY);
-    assert.equal(isCharUnlocked(reloaded, id), WEDDING_ART_READY);
+    assert.ok(rosterForSave(reloaded).some(c => c.id === id));
+    assert.ok(isCharUnlocked(reloaded, id));
   }
 });
 
