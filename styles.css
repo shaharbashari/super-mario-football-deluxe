@@ -127,6 +127,7 @@ body[data-screen="match"] #btn-top-coins { display: none; }
 .dock-btn { display: inline-flex; align-items: center; gap: 10px; border: 1px solid #34465d; border-radius: 9px; background: #152333; padding: 11px 17px; font-size: 11px; font-weight: 750; }
 .dock-btn:hover { border-color: #d9c18c; background: #223346; }
 .dock-btn.gold-accent { color: var(--gold); }
+.dock-btn.code-btn { align-self: center; background: transparent; padding: 7px 12px; }
 .dock-pill, .mini-pill { font-size: 10px; border-radius: 5px; padding: 2px 6px; background: #ffffff10; }
 .menu-credit { text-align: center; font-size: 10px; color: #8596ae; margin-block: 0; }
 
@@ -503,7 +504,8 @@ body[data-motion="reduced"] *, body[data-motion="reduced"] *::before, body[data-
 .online-pick, .online-rules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .online-pick { margin-bottom: 20px; }
 .online-modal label { display: flex; flex-direction: column; gap: 6px; color: #b9c9de; font-size: 12px; min-width: 0; }
-.online-modal input:not([type="checkbox"]), .online-modal select { width: 100%; min-width: 0; border: 1px solid #536b84; border-radius: 7px; background: #0c1b2b; color: #f1e7d0; padding: 10px; min-height: 42px; }
+.online-modal input:not([type="checkbox"]), .online-modal select, #roster-code { width: 100%; min-width: 0; border: 1px solid #536b84; border-radius: 7px; background: #0c1b2b; color: #f1e7d0; padding: 10px; min-height: 42px; }
+#roster-code { margin-top: 6px; }
 .online-connect-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
 .online-code-label { flex: 1; min-width: 170px !important; }
 #online-code-input { text-transform: uppercase; letter-spacing: 3px; font-weight: 850; }

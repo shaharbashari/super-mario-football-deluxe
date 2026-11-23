@@ -43,7 +43,11 @@ score limit, items, hazards and Hyper-Strikes. Changing rules clears readiness.
 
 The room creator runs the authoritative simulation. Guests send their own
 inputs and render interpolated host snapshots; they do not simulate independent
-balls or award local progression. Pausing pauses the whole match, and each
+balls or award local progression. A striker’s facing comes from the host even
+when braking or standing still. Busy frames (including clones and multiball)
+use PeerJS chunking rather than dropping the room at the JSON channel’s size limit.
+After updating the game, refresh every device and create a new room.
+Pausing pauses the whole match, and each
 player must clear their own pause request before play resumes. Finished rounds
 return everyone to the same lobby to ready up for a rematch. A disconnected
 player cancels the round; an unresponsive peer is removed after roughly
@@ -143,6 +147,11 @@ valid unlocks survive recovery. Invalid save data is backed up under the
 failures are reported visibly. Browser profiles and `file://` versus HTTP
 origins may have separate saves; there is no cloud synchronization.
 
+**Enter code** on the main menu saves a roster unlock on this browser, not in
+the online room. The six wedding strikers are held back until their artwork is
+approved. A code redeemed now will still count when the squad is released.
+Party Unlock All, coins and the Full Squad trophy only cover the regular roster.
+
 ## Development
 
 Node.js 20+ is required for development. The browser has no Node dependency.
@@ -219,6 +228,12 @@ Run without `--check` to downsample a regenerated `6144 x 1536` source atlas.
 This keeps the existing poses; it does not invent new hand-drawn frames.
 The original twelve runtime PNGs went from **59.9 MB to 17.7 MB**, and decoded
 memory per sheet went from **36 MiB to 9 MiB**.
+
+For the wedding squad, install the approved `char_<id>.png` atlases and
+`portrait_<id>.png` portraits in `assets/sprites` for all six IDs in
+`WEDDING_SQUAD`, then enable `WEDDING_ART_READY` in `src/config.js`. Do not
+include the original photos. Keep the wire version/peer namespace compatible
+with the roster both peers can render.
 
 The six root-level Swift tools are historical, macOS-only asset experiments.
 They use Apple graphics frameworks and several incompatible atlas layouts;

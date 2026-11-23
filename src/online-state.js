@@ -1,7 +1,7 @@
 import { CHARACTERS, ARENAS, ITEMS, DEFAULT_SETTINGS, BALL_SKINS, GOAL_EXPLOSIONS, getCharacter, getArena } from './config.js';
 
-export const ONLINE_VERSION = 1;
-export const ONLINE_PREFIX = 'smfd-room-v1-';
+export const ONLINE_VERSION = 2;
+export const ONLINE_PREFIX = `smfd-room-v${ONLINE_VERSION}-`;
 export const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const ONLINE_INPUT_KEYS = ['left', 'right', 'up', 'down', 'jumpHeld', 'kickDown', 'lobDown',
   'upPressed', 'downPressed', 'downReleased', 'jumpPressed', 'jumpReleased', 'kickPressed',
@@ -15,7 +15,7 @@ export const ONLINE_DEFAULTS = {
 const MAX_PACKET_LENGTH = 60000;
 const PLAYER_STATS = 'goals powerShots saves parries hyperStrikes comboPasses itemsUsed kos meteorSpikes wallJumps meteorGoals lavaTouches jumps touches dashes ownGoals';
 const schemas = {
-  player: ['slot team bossScale x y vx vy halfW halfH visualScale squashX squashY shadowY animPhase runPhase strideBounce animLean spinAngle groundPoundTimer kickTimer kickDuration kickPowerRatio chargeTime stunTimer invulnTimer starTimer magnetTimer parryFlashTimer dashTimer jumpsLeft hoverFuel', 'onGround bigHead isClone isHovering hyperReady isHyperSwing fastFalling isAI', 'tag kickType animState groundPoundState heldItem teamColor'],
+  player: ['slot team bossScale x y vx vy facing halfW halfH visualScale squashX squashY shadowY animPhase runPhase strideBounce animLean spinAngle groundPoundTimer kickTimer kickDuration kickPowerRatio chargeTime stunTimer invulnTimer starTimer magnetTimer parryFlashTimer dashTimer jumpsLeft hoverFuel', 'onGround bigHead isClone isHovering hyperReady isHyperSwing fastFalling isAI', 'tag kickType animState groundPoundState heldItem teamColor'],
   ball: ['id x y vx vy angle angVel spin radius baseRadius targetScale squashX squashY lastKickTime lastTeam freezeTimer burnTimer vanishTimer zeroGTimer scaleTimer', 'hyperActive comboBoosted hyperVoltage', 'auraColor hyperStyle'],
   courier: ['x y vx vy bubbleX bubbleY', 'active', 'heldItemId'],
   shell: ['x y vx vy radius timer ownerTeam', '', ''],
@@ -182,6 +182,7 @@ function entityState(source, kind) {
     assertOnline(CHARACTERS.some(character => character.id === source.charId), 'player character');
     assertOnline(Number.isInteger(source.kitIdx) && source.kitIdx >= 0 && source.kitIdx < 3, 'player kit');
     assertOnline(Number.isInteger(result.slot) && result.slot >= 0 && (result.team === 0 || result.team === 1), 'player identity/team');
+    assertOnline(source.facing === -1 || source.facing === 1, 'player facing');
     assertOnline(numeric(result.halfW) && numeric(result.halfH) && numeric(result.visualScale), 'player geometry');
     result.charId = source.charId;
     result.kitIdx = source.kitIdx;
@@ -318,6 +319,10 @@ export class RemoteMatchView {
         const rendered = { ...entity };
         for (const field of ['x', 'y', 'angle', 'squashX', 'squashY', 'visualScale']) {
           if (numeric(from[field]) && numeric(entity[field])) rendered[field] = from[field] + (entity[field] - from[field]) * blend;
+        }
+        // Facing is discrete. Blend the clock only while the same clip keeps advancing.
+        if (key === 'players' && from.animState === entity.animState && from.animPhase <= entity.animPhase) {
+          rendered.animPhase = from.animPhase + (entity.animPhase - from.animPhase) * blend;
         }
         return rendered;
       });

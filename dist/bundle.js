@@ -4,7 +4,7 @@
 
 // === src/config.js ===
 // Super Kick Kingdom 2.0 (Deluxe Edition) — Master Configuration
-// 12 strikers, 7 stadiums, 18 items, 9 mutators, 4 cups and 26 trophies.
+// 12 regular strikers plus a code-only squad, 7 stadiums, 18 items, 9 mutators, 4 cups and 26 trophies.
 const VIRTUAL_WIDTH = 1920;
 const VIRTUAL_HEIGHT = 1080;
 const FIELD_CHARACTER_DRAW_SIZE = 128;
@@ -15,7 +15,7 @@ const COURIER_LAYOUT = {
   bubbleRadius: 52,
   itemRadius: 40,
 };
-const CHARACTERS = [
+const STANDARD_CHARACTERS = [
   {
     id: 'mario',
     name: 'Mario',
@@ -342,6 +342,56 @@ const CHARACTERS = [
     displayStats: { speed: 5, jump: 4, power: 4, weight: 3 },
   },
 ];
+
+function weddingStriker({ id, name, title, color, accent, traitName, traitDesc, hyperName, hyperStyle, stats, displayStats }) {
+  const kits = [
+    { name: 'Match Night', primary: color, secondary: '#19283d', accent, aura: accent },
+    { name: 'Silver Away', primary: '#cbd5e1', secondary: '#334155', accent: '#ffffff', aura: '#dbeafe' },
+    { name: 'Golden Hour', primary: '#e4ad43', secondary: '#493316', accent: '#fff4b5', aura: '#fde68a' },
+  ];
+  return { ...kits[0], id, name, title, emblem: name[0], traitName, traitDesc, hyperName, hyperStyle,
+    kits, particleColor: accent, voiceBase: 270, voiceStyle: 'hero',
+    stats: { speed: 1, jump: 1, power: 1, size: 1, weight: 1, ...stats }, displayStats };
+}
+const WEDDING_SQUAD = [
+  weddingStriker({ id: 'livne', name: 'Livne', title: 'Wedding Captain', color: '#215076', accent: '#ffd373',
+    traitName: 'Captain’s Finish', traitDesc: 'Extra striking power makes a clean volley count.',
+    hyperName: 'First Dance', hyperStyle: 'vacuum_lob', stats: { power: 1.12 },
+    displayStats: { speed: 4, jump: 4, power: 5, weight: 3 } }),
+  weddingStriker({ id: 'dani', name: 'Dani', title: 'Curl Specialist', color: '#8156ba', accent: '#ebc5ff',
+    traitName: 'Bend the Ball', traitDesc: 'Adds spin to send shots curling past the keeper.',
+    hyperName: 'Ribbon Curl', hyperStyle: 'whip_curve', stats: { autoSpin: 1, weight: 0.95 },
+    displayStats: { speed: 4, jump: 4, power: 4, weight: 3 } }),
+  weddingStriker({ id: 'dor', name: 'Dor', title: 'Back Line Anchor', color: '#208c86', accent: '#a5f3df',
+    traitName: 'Hold the Line', traitDesc: 'A heavier stance and stronger knockback in close challenges.',
+    hyperName: 'Velvet Hammer', hyperStyle: 'heavy_shock', stats: { brawlBoost: 1.25, weight: 1.18, speed: 0.96 },
+    displayStats: { speed: 3, jump: 4, power: 4, weight: 5 } }),
+  weddingStriker({ id: 'shahar', name: 'Shahar', title: 'Breakaway Runner', color: '#d96038', accent: '#ffcea0',
+    traitName: 'Fast Break', traitDesc: 'Extra sprint speed to reach a loose ball first.',
+    hyperName: 'Golden Sprint', hyperStyle: 'zero_g_laser', stats: { speed: 1.12, power: 0.98 },
+    displayStats: { speed: 5, jump: 4, power: 3, weight: 3 } }),
+  weddingStriker({ id: 'tal', name: 'Tal', title: 'Crossbar Acrobat', color: '#418846', accent: '#d2efa1',
+    traitName: 'Up and Over', traitDesc: 'A higher leap puts crosses within reach.',
+    hyperName: 'Bouquet Lob', hyperStyle: 'dip_meteor', stats: { jump: 1.13, speed: 0.98 },
+    displayStats: { speed: 3, jump: 5, power: 4, weight: 3 } }),
+  weddingStriker({ id: 'ziv', name: 'Ziv', title: 'Second-Chance Striker', color: '#386bc2', accent: '#aedcff',
+    traitName: 'Encore', traitDesc: 'Gets an extra lift on the second jump.',
+    hyperName: 'Encore Rebound', hyperStyle: 'ricochet_hyper', stats: { doubleJumpBoost: 1.16, weight: 0.94 },
+    displayStats: { speed: 4, jump: 5, power: 4, weight: 2 } }),
+];
+
+// Enable only with the approved portrait and animation atlas for every squad member.
+const WEDDING_ART_READY = false;
+const CHARACTERS = WEDDING_ART_READY ? [...STANDARD_CHARACTERS, ...WEDDING_SQUAD] : STANDARD_CHARACTERS;
+function rosterForSave(save) {
+  return save?.weddingSquadUnlocked === true ? CHARACTERS : STANDARD_CHARACTERS;
+}
+function redeemRosterCode(save, code) {
+  if (typeof code !== 'string' || code.trim().toUpperCase().replace(/’/g, "'") !== "LIVNE-GETTING-MARRIED'") return 'invalid';
+  if (save.weddingSquadUnlocked) return 'already-unlocked';
+  save.weddingSquadUnlocked = true;
+  return 'unlocked';
+}
 const ITEMS = [
   // Classic 10 Authentic Mario Items
   {
@@ -839,7 +889,7 @@ const TROPHIES = [
   { id: 'keepup_pro', name: 'Lava Juggler', desc: 'Survive 45+ seconds in Keep-Up Survival.', reward: 60 },
   { id: 'gauntlet_wall', name: 'Iron Gloves', desc: 'Save 15+ cannon shots in Goalie Gauntlet.', reward: 60 },
   { id: 'mutator_madness', name: 'Mad Scientist', desc: 'Play a match with 3+ Party Mutators active.', reward: 35 },
-  { id: 'collector', name: 'Full Squad', desc: 'Unlock all 12 playable strikers.', reward: 100 },
+  { id: 'collector', name: 'Full Squad', desc: 'Unlock all 12 regular strikers.', reward: 100 },
   { id: 'fashionista', name: 'Style Icon', desc: 'Unlock a custom Ball Skin and Goal Explosion.', reward: 50 },
   { id: 'trial_initiate', name: 'Dojo Initiate', desc: 'Conquer your first Striker Trial.', reward: 50 },
   { id: 'trial_grandmaster', name: 'Kung-Foot Grandmaster', desc: 'Conquer all 8 Striker Trials with Star Medals!', reward: 200 },
@@ -1093,13 +1143,14 @@ function normalizeSettings(value) {
   return result;
 }
 function normalizeSaveData(value) {
-  const defaultUnlockedChars = CHARACTERS.filter((c) => c.unlockedByDefault).map((c) => c.id);
+  const defaultUnlockedChars = STANDARD_CHARACTERS.filter((c) => c.unlockedByDefault).map((c) => c.id);
   const base = {
     version: 3,
     settings: { ...DEFAULT_SETTINGS, activeMutators: [] },
     controls: JSON.parse(JSON.stringify(DEFAULT_CONTROLS)),
     coins: 150, // Welcome starter purse so players can try the Locker Room right away!
     unlockedChars: defaultUnlockedChars,
+    weddingSquadUnlocked: false,
     unlockedBalls: ['classic'],
     unlockedExplosions: ['confetti'],
     wonCups: [],
@@ -1122,7 +1173,8 @@ function normalizeSaveData(value) {
   ])];
   base.settings = normalizeSettings(value.settings);
   if (Number.isFinite(value.coins) && typeof value.coins === 'number') base.coins = Math.max(0, Math.floor(value.coins));
-  base.unlockedChars = collection('unlockedChars', CHARACTERS, defaultUnlockedChars);
+  base.unlockedChars = collection('unlockedChars', STANDARD_CHARACTERS, defaultUnlockedChars);
+  base.weddingSquadUnlocked = value.weddingSquadUnlocked === true;
   base.unlockedBalls = collection('unlockedBalls', BALL_SKINS, ['classic']);
   base.unlockedExplosions = collection('unlockedExplosions', GOAL_EXPLOSIONS, ['confetti']);
   base.wonCups = collection('wonCups', GRAND_PRIX_CUPS);
@@ -1206,6 +1258,7 @@ function getArena(id) {
   return ARENAS.find((a) => a.id === id) || ARENAS[0];
 }
 function isCharUnlocked(save, charId) {
+  if (WEDDING_SQUAD.some(c => c.id === charId)) return WEDDING_ART_READY && save?.weddingSquadUnlocked === true;
   if (save?.settings?.partyUnlockAll) return true;
   return Boolean(save?.unlockedChars?.includes(charId));
 }
@@ -3051,8 +3104,8 @@ function trialProgress(match) {
 
 
 // === src/online-state.js ===
-const ONLINE_VERSION = 1;
-const ONLINE_PREFIX = 'smfd-room-v1-';
+const ONLINE_VERSION = 2;
+const ONLINE_PREFIX = `smfd-room-v${ONLINE_VERSION}-`;
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const ONLINE_INPUT_KEYS = ['left', 'right', 'up', 'down', 'jumpHeld', 'kickDown', 'lobDown',
   'upPressed', 'downPressed', 'downReleased', 'jumpPressed', 'jumpReleased', 'kickPressed',
@@ -3066,7 +3119,7 @@ const ONLINE_DEFAULTS = {
 const MAX_PACKET_LENGTH = 60000;
 const PLAYER_STATS = 'goals powerShots saves parries hyperStrikes comboPasses itemsUsed kos meteorSpikes wallJumps meteorGoals lavaTouches jumps touches dashes ownGoals';
 const schemas = {
-  player: ['slot team bossScale x y vx vy halfW halfH visualScale squashX squashY shadowY animPhase runPhase strideBounce animLean spinAngle groundPoundTimer kickTimer kickDuration kickPowerRatio chargeTime stunTimer invulnTimer starTimer magnetTimer parryFlashTimer dashTimer jumpsLeft hoverFuel', 'onGround bigHead isClone isHovering hyperReady isHyperSwing fastFalling isAI', 'tag kickType animState groundPoundState heldItem teamColor'],
+  player: ['slot team bossScale x y vx vy facing halfW halfH visualScale squashX squashY shadowY animPhase runPhase strideBounce animLean spinAngle groundPoundTimer kickTimer kickDuration kickPowerRatio chargeTime stunTimer invulnTimer starTimer magnetTimer parryFlashTimer dashTimer jumpsLeft hoverFuel', 'onGround bigHead isClone isHovering hyperReady isHyperSwing fastFalling isAI', 'tag kickType animState groundPoundState heldItem teamColor'],
   ball: ['id x y vx vy angle angVel spin radius baseRadius targetScale squashX squashY lastKickTime lastTeam freezeTimer burnTimer vanishTimer zeroGTimer scaleTimer', 'hyperActive comboBoosted hyperVoltage', 'auraColor hyperStyle'],
   courier: ['x y vx vy bubbleX bubbleY', 'active', 'heldItemId'],
   shell: ['x y vx vy radius timer ownerTeam', '', ''],
@@ -3222,6 +3275,7 @@ function entityState(source, kind) {
     assertOnline(CHARACTERS.some(character => character.id === source.charId), 'player character');
     assertOnline(Number.isInteger(source.kitIdx) && source.kitIdx >= 0 && source.kitIdx < 3, 'player kit');
     assertOnline(Number.isInteger(result.slot) && result.slot >= 0 && (result.team === 0 || result.team === 1), 'player identity/team');
+    assertOnline(source.facing === -1 || source.facing === 1, 'player facing');
     assertOnline(numeric(result.halfW) && numeric(result.halfH) && numeric(result.visualScale), 'player geometry');
     result.charId = source.charId;
     result.kitIdx = source.kitIdx;
@@ -3356,6 +3410,10 @@ class RemoteMatchView {
         for (const field of ['x', 'y', 'angle', 'squashX', 'squashY', 'visualScale']) {
           if (numeric(from[field]) && numeric(entity[field])) rendered[field] = from[field] + (entity[field] - from[field]) * blend;
         }
+        // Facing is discrete. Blend the clock only while the same clip keeps advancing.
+        if (key === 'players' && from.animState === entity.animState && from.animPhase <= entity.animPhase) {
+          rendered.animPhase = from.animPhase + (entity.animPhase - from.animPhase) * blend;
+        }
         return rendered;
       });
     }
@@ -3483,7 +3541,9 @@ class OnlineRoom {
       const peer = await this._open(undefined);
       if (generation !== this.generation) return;
       const connection = peer.connect(ONLINE_PREFIX + normalized, {
-        label: 'smfd-room', serialization: 'json', reliable: true,
+        // PeerJS's JSON channel rejects messages over 16 KB. Binary chunks larger
+        // snapshots and delivers the same bounded JSON string to our decoder.
+        label: 'smfd-room', serialization: 'binary', reliable: true,
         metadata: { app: ONLINE_PREFIX, version: ONLINE_VERSION },
       });
       this.hostConnection = connection;
@@ -3869,10 +3929,15 @@ const CHAR_SPRITE_METRICS = {
   rosalina: { drawSize: 202, footY: 0.968, airShiftY: 3 },
   king_boo: { drawSize: 184, footY: 0.880, airShiftY: 0 },
   bowser_jr: { drawSize: 144, footY: 0.968, airShiftY: 3 },
+  ...Object.fromEntries(WEDDING_SQUAD.map(({ id }) => [id, { drawSize: 172, footY: 0.968, airShiftY: 3 }])),
 };
 
 // Curated GPU CSS-Filter recipes for Kit 1 & Kit 2 across all 12 strikers (preserves crisp ink & cel shading!)
 const KIT_FILTER_SPECS = {
+  ...Object.fromEntries(WEDDING_SQUAD.flatMap(({ id }) => [
+    [`${id}:1`, { filter: 'grayscale(1) brightness(1.18)', glaze: '#cbd5e1', glazeAlpha: 0.12 }],
+    [`${id}:2`, { filter: 'sepia(1) saturate(1.6)', glaze: '#f9cb69', glazeAlpha: 0.12 }],
+  ])),
   'mario:1': { filter: 'hue-rotate(-12deg) saturate(1.15) brightness(1.18) contrast(1.06)', glaze: '#ffffff', glazeAlpha: 0.16 },
   'mario:2': { filter: 'hue-rotate(46deg) saturate(1.38) brightness(1.08)', glaze: '#fde047', glazeAlpha: 0.1 },
   'luigi:1': { filter: 'hue-rotate(44deg) saturate(1.18) brightness(1.10)', glaze: '#2dd4bf', glazeAlpha: 0.1 },
@@ -3930,7 +3995,7 @@ class ArtRenderer {
     }
 
     const spriteKeys = [
-      ...CHARACTERS.map((c) => `portrait_${c.id}`),
+      ...STANDARD_CHARACTERS.map((c) => `portrait_${c.id}`),
       'props_atlas',
       'balls_atlas',
       'items_atlas',
@@ -4066,6 +4131,7 @@ class ArtRenderer {
 
   // Public helper for UI cards / Locker / Roster portraits!
   drawCharacterPortrait(ctx, charObj, cx, cy, size) {
+    this._requestImage(`portrait_${charObj.id}`, `./assets/sprites/portrait_${charObj.id}.png`, this.sprites);
     const portrait = this.sprites[`portrait_${charObj.id}`];
     const sheet = this._getCharSheet(charObj);
     ctx.save();
@@ -9829,13 +9895,6 @@ class OnlineController {
       this.room.setReady(!player.ready);
     }));
     this._element('online-start').addEventListener('click', () => this._run(() => this.room.start()));
-    this._element('online-char').replaceChildren(...CHARACTERS.map(character => {
-      const option = document.createElement('option');
-      option.value = character.id;
-      option.textContent = character.name;
-      option.disabled = !isCharUnlocked(this.app.save, character.id);
-      return option;
-    }));
     this._element('online-arena').replaceChildren(...ARENAS.filter(arena => !arena.isRandom).map(arena => {
       const option = document.createElement('option');
       option.value = arena.id;
@@ -9860,6 +9919,17 @@ class OnlineController {
         hyperStrikes: this._element('online-hyper').checked,
       })));
     }
+  }
+
+  _updateRoster() {
+    const select = this._element('online-char');
+    const previous = select.value;
+    select.replaceChildren(...rosterForSave(this.app.save).map(character => {
+      const option = new Option(character.name, character.id);
+      option.disabled = !isCharUnlocked(this.app.save, character.id);
+      return option;
+    }));
+    if ([...select.options].some(option => option.value === previous && !option.disabled)) select.value = previous;
     this._updateKits();
   }
 
@@ -9876,14 +9946,17 @@ class OnlineController {
   }
 
   _pick() {
+    const charId = this._element('online-char').value;
+    if (!isCharUnlocked(this.app.save, charId)) throw new Error('Choose an unlocked striker.');
     return {
       name: onlineName(this._element('online-name').value),
-      charId: this._element('online-char').value,
+      charId,
       kitIdx: Number(this._element('online-kit').value),
     };
   }
 
   open() {
+    this._updateRoster();
     this._render();
     this.app._openModal('modal-online');
     if (this.room.phase === 'idle') {
@@ -9984,7 +10057,7 @@ class OnlineController {
         const member = players.find(player => player.slot === slot);
         return {
           slot, controlSlot: slot, team: slot % 2, tag: member ? `P${slot + 1}` : `CPU${slot + 1}`,
-          isAI: !member, charId: member?.charId || CHARACTERS[(slot + 1) % 6].id,
+          isAI: !member, charId: member?.charId || STANDARD_CHARACTERS[(slot + 1) % 6].id,
           kitIdx: member?.kitIdx || 0, role: slot >= 2 ? 'defender' : 'striker',
         };
       });
@@ -10271,6 +10344,8 @@ class SuperKickKingdomApp {
     requestAnimationFrame((ts) => this._loop(ts));
   }
 
+  get roster() { return rosterForSave(this.save); }
+
   _persist() {
     this.save.settings = this.settings;
     this.save.controls = this.controls;
@@ -10289,6 +10364,7 @@ class SuperKickKingdomApp {
   }
 
   _syncMenuBadges() {
+    document.getElementById('menu-roster-count').textContent = String(this.roster.length);
     const coinsStr = String(this.save.coins);
     const topCoins = document.getElementById('top-coin-count');
     if (topCoins) topCoins.textContent = coinsStr;
@@ -10373,7 +10449,7 @@ class SuperKickKingdomApp {
   }
 
   _checkCollectionTrophies() {
-    if (this.save.unlockedChars.length >= CHARACTERS.length) {
+    if (this.save.unlockedChars.length >= STANDARD_CHARACTERS.length) {
       this._unlockTrophy('collector');
     }
     if (this.save.unlockedBalls.length >= 2 && this.save.unlockedExplosions.length >= 2) {
@@ -10486,6 +10562,31 @@ class SuperKickKingdomApp {
     }
 
     // Main Menu Footer Buttons
+    const codeInput = document.getElementById('roster-code');
+    const codeStatus = document.getElementById('roster-code-status');
+    document.getElementById('btn-enter-code').addEventListener('click', () => {
+      codeInput.value = '';
+      codeStatus.textContent = '';
+      this._openModal('modal-roster-code');
+      codeInput.focus();
+    });
+    document.getElementById('roster-code-form').addEventListener('submit', event => {
+      event.preventDefault();
+      const result = redeemRosterCode(this.save, codeInput.value);
+      if (result === 'invalid') {
+        codeStatus.textContent = 'Code not recognized. Check the spelling and punctuation.';
+        codeInput.select();
+      } else {
+        if (result === 'unlocked') {
+          this._persist();
+          this.audio.playClick();
+        }
+        codeStatus.textContent = !WEDDING_ART_READY
+          ? 'Code accepted. The six wedding strikers will appear in character select when their artwork is ready.'
+          : result === 'already-unlocked' ? 'The wedding squad is already on your roster.'
+          : 'Wedding squad unlocked! All six strikers are ready for local and online play.';
+      }
+    });
     document.getElementById('btn-open-locker').addEventListener('click', () => {
       this.audio.playClick();
       this._openLockerModal('chars');
@@ -11025,7 +11126,7 @@ class SuperKickKingdomApp {
   _startPractice() {
     this.selectedMode = 'practice';
     this.arenaIdx = 0;
-    if (!isCharUnlocked(this.save, CHARACTERS[this.charIdx0].id)) this.charIdx0 = 0;
+    if (!isCharUnlocked(this.save, this.roster[this.charIdx0].id)) this.charIdx0 = 0;
     this.startMatch();
   }
 
@@ -11108,7 +11209,7 @@ class SuperKickKingdomApp {
 
     for (const cup of GRAND_PRIX_CUPS) {
       const won = this.save.wonCups.includes(cup.id);
-      const unlockChar = CHARACTERS.find((c) => c.id === cup.unlocksChar);
+      const unlockChar = this.roster.find((c) => c.id === cup.unlocksChar);
       const card = document.createElement('div');
       card.className = `cup-card ${won ? 'conquered' : ''}`;
       card.innerHTML = `
@@ -11145,7 +11246,7 @@ class SuperKickKingdomApp {
     const round = cup.rounds[Math.min(this.cupRound, cup.rounds.length - 1)];
     const arIdx = ARENAS.findIndex((a) => a.id === round.arenaId);
     this.arenaIdx = arIdx >= 0 ? arIdx : 0;
-    const foeIdx = CHARACTERS.findIndex((c) => c.id === round.foeId);
+    const foeIdx = this.roster.findIndex((c) => c.id === round.foeId);
     this.charIdx1 = foeIdx >= 0 ? foeIdx : 5;
     this.kitIdx1 = round.kitIdx || 0;
     this.cupBossScale = round.bossScale || 1.0;
@@ -11200,12 +11301,12 @@ class SuperKickKingdomApp {
   _startTrial(trial) {
     this.activeTrial = trial;
     this.selectedMode = 'trial';
-    const playerCharIdx = CHARACTERS.findIndex((c) => c.id === trial.playerChar);
+    const playerCharIdx = this.roster.findIndex((c) => c.id === trial.playerChar);
     this.charIdx0 = playerCharIdx >= 0 ? playerCharIdx : 0;
     this.kitIdx0 = 0;
 
     const firstOpponent = trial.opponents[0];
-    const foeIdx = CHARACTERS.findIndex((c) => c.id === firstOpponent.charId);
+    const foeIdx = this.roster.findIndex((c) => c.id === firstOpponent.charId);
     this.charIdx1 = foeIdx >= 0 ? foeIdx : 1;
     this.kitIdx1 = firstOpponent.kitIdx || 0;
 
@@ -11236,16 +11337,16 @@ class SuperKickKingdomApp {
       b.classList.toggle('active', Number(b.dataset.humans) === humans);
     });
 
-    const unlockedPool = CHARACTERS.filter((c) => isCharUnlocked(this.save, c.id));
+    const unlockedPool = this.roster.filter((c) => isCharUnlocked(this.save, c.id));
     const shuffledUnlocked = [...unlockedPool].sort(() => Math.random() - 0.5);
-    const allPool = [...CHARACTERS].sort(() => Math.random() - 0.5);
+    const allPool = [...this.roster].sort(() => Math.random() - 0.5);
 
     const entrants = [];
     for (let h = 0; h < humans; h++) {
       let chosen = shuffledUnlocked[h % shuffledUnlocked.length];
-      if (h === 0 && isCharUnlocked(this.save, CHARACTERS[this.charIdx0].id)) chosen = CHARACTERS[this.charIdx0];
-      else if (h === 1 && isCharUnlocked(this.save, CHARACTERS[this.charIdx1].id)) {
-        chosen = CHARACTERS[this.charIdx1];
+      if (h === 0 && isCharUnlocked(this.save, this.roster[this.charIdx0].id)) chosen = this.roster[this.charIdx0];
+      else if (h === 1 && isCharUnlocked(this.save, this.roster[this.charIdx1].id)) {
+        chosen = this.roster[this.charIdx1];
       }
       entrants.push({
         id: `H${h + 1}`,
@@ -11426,9 +11527,9 @@ class SuperKickKingdomApp {
 
     this.tourneyState.activeMatch = nextMatch;
     this.selectedMode = 'tourney';
-    this.charIdx0 = Math.max(0, CHARACTERS.findIndex((c) => c.id === nextMatch.pA.charId));
+    this.charIdx0 = Math.max(0, this.roster.findIndex((c) => c.id === nextMatch.pA.charId));
     this.kitIdx0 = nextMatch.pA.kitIdx || 0;
-    this.charIdx1 = Math.max(0, CHARACTERS.findIndex((c) => c.id === nextMatch.pB.charId));
+    this.charIdx1 = Math.max(0, this.roster.findIndex((c) => c.id === nextMatch.pB.charId));
     this.kitIdx1 = nextMatch.pB.kitIdx || 0;
     this.arenaIdx = Math.max(0, ARENAS.findIndex((a) => a.id === nextMatch.arenaId));
 
@@ -11502,7 +11603,7 @@ class SuperKickKingdomApp {
     if (this.lockerTab === 'chars') {
       const grid = document.createElement('div');
       grid.className = 'locker-grid';
-      for (const ch of CHARACTERS) {
+      for (const ch of this.roster) {
         const unlocked = isCharUnlocked(this.save, ch.id);
         const card = document.createElement('div');
         card.className = `locker-item-card ${unlocked ? 'unlocked' : ''}`;
@@ -11834,11 +11935,11 @@ class SuperKickKingdomApp {
     if (slot === 1 && (this.selectedMode === 'cup' || this._isMinigameMode())) return;
     this.audio.playClick();
     if (slot === 0) {
-      this.charIdx0 = (this.charIdx0 + CHARACTERS.length + dir) % CHARACTERS.length;
+      this.charIdx0 = (this.charIdx0 + this.roster.length + dir) % this.roster.length;
       this.previewKickTimer0 = 0.25;
       this._ensureValidAlly();
     } else {
-      this.charIdx1 = (this.charIdx1 + CHARACTERS.length + dir) % CHARACTERS.length;
+      this.charIdx1 = (this.charIdx1 + this.roster.length + dir) % this.roster.length;
       this.previewKickTimer1 = 0.25;
       this._ensureValidFoeAlly();
     }
@@ -11859,9 +11960,9 @@ class SuperKickKingdomApp {
   }
 
   _ensureValidAlly() {
-    if (this.allyCharIdx === this.charIdx0 || !isCharUnlocked(this.save, CHARACTERS[this.allyCharIdx].id)) {
-      for (let i = 0; i < CHARACTERS.length; i++) {
-        if (i !== this.charIdx0 && isCharUnlocked(this.save, CHARACTERS[i].id)) {
+    if (this.allyCharIdx === this.charIdx0 || !isCharUnlocked(this.save, this.roster[this.allyCharIdx].id)) {
+      for (let i = 0; i < this.roster.length; i++) {
+        if (i !== this.charIdx0 && isCharUnlocked(this.save, this.roster[i].id)) {
           this.allyCharIdx = i;
           return;
         }
@@ -11870,9 +11971,9 @@ class SuperKickKingdomApp {
   }
 
   _cycleAlly() {
-    for (let step = 1; step <= CHARACTERS.length; step++) {
-      const cand = (this.allyCharIdx + step) % CHARACTERS.length;
-      if (cand !== this.charIdx0 && isCharUnlocked(this.save, CHARACTERS[cand].id)) {
+    for (let step = 1; step <= this.roster.length; step++) {
+      const cand = (this.allyCharIdx + step) % this.roster.length;
+      if (cand !== this.charIdx0 && isCharUnlocked(this.save, this.roster[cand].id)) {
         this.allyCharIdx = cand;
         this.allyKitIdx = (this.allyKitIdx + 1) % 3;
         break;
@@ -11885,22 +11986,22 @@ class SuperKickKingdomApp {
     if (
       this.foeAllyCharIdx === undefined ||
       this.foeAllyCharIdx === this.charIdx1 ||
-      !isCharUnlocked(this.save, CHARACTERS[this.foeAllyCharIdx].id)
+      !isCharUnlocked(this.save, this.roster[this.foeAllyCharIdx].id)
     ) {
-      for (let i = 0; i < CHARACTERS.length; i++) {
-        if (i !== this.charIdx1 && isCharUnlocked(this.save, CHARACTERS[i].id)) {
+      for (let i = 0; i < this.roster.length; i++) {
+        if (i !== this.charIdx1 && isCharUnlocked(this.save, this.roster[i].id)) {
           this.foeAllyCharIdx = i;
           return;
         }
       }
-      this.foeAllyCharIdx = (this.charIdx1 + 3) % CHARACTERS.length;
+      this.foeAllyCharIdx = (this.charIdx1 + 3) % this.roster.length;
     }
   }
 
   _cycleFoeAlly() {
-    for (let step = 1; step <= CHARACTERS.length; step++) {
-      const cand = (this.foeAllyCharIdx + step) % CHARACTERS.length;
-      if (cand !== this.charIdx1 && isCharUnlocked(this.save, CHARACTERS[cand].id)) {
+    for (let step = 1; step <= this.roster.length; step++) {
+      const cand = (this.foeAllyCharIdx + step) % this.roster.length;
+      if (cand !== this.charIdx1 && isCharUnlocked(this.save, this.roster[cand].id)) {
         this.foeAllyCharIdx = cand;
         this.foeAllyKitIdx = ((this.foeAllyKitIdx || 0) + 1) % 3;
         break;
@@ -11911,7 +12012,7 @@ class SuperKickKingdomApp {
 
   _tryUnlockSelectChar(slot) {
     const idx = slot === 0 ? this.charIdx0 : this.charIdx1;
-    const ch = CHARACTERS[idx];
+    const ch = this.roster[idx];
     if (isCharUnlocked(this.save, ch.id)) return;
     if (this.save.coins >= ch.unlockCost) {
       this.save.coins -= ch.unlockCost;
@@ -11932,14 +12033,14 @@ class SuperKickKingdomApp {
   }
 
   _attemptStartFromSelect() {
-    const ch0 = CHARACTERS[this.charIdx0];
+    const ch0 = this.roster[this.charIdx0];
     if (!isCharUnlocked(this.save, ch0.id)) {
       this._tryUnlockSelectChar(0);
       return;
     }
     if (this.selectedMode === '1v1_pvp' ||
         (this.selectedMode === '2v2' && ['4p', '3p', 'duel'].includes(this.twoVsTwoFormat))) {
-      const ch1 = CHARACTERS[this.charIdx1];
+      const ch1 = this.roster[this.charIdx1];
       if (!isCharUnlocked(this.save, ch1.id)) {
         this._tryUnlockSelectChar(1);
         return;
@@ -11970,7 +12071,7 @@ class SuperKickKingdomApp {
     const allyBtn = document.getElementById('btn-cycle-ally');
     allyBtn.classList.toggle('hidden', !showAllyBtn);
     if (showAllyBtn) {
-      const allyChar = CHARACTERS[this.allyCharIdx];
+      const allyChar = this.roster[this.allyCharIdx];
       const allyTag =
         is2v2 && (this.twoVsTwoFormat === '4p' || this.twoVsTwoFormat === '3p')
           ? 'P3'
@@ -11985,7 +12086,7 @@ class SuperKickKingdomApp {
       foeAllyBtn.classList.toggle('hidden', !is2v2);
       if (is2v2) {
         this._ensureValidFoeAlly();
-        const foeAllyChar = CHARACTERS[this.foeAllyCharIdx] || CHARACTERS[3];
+        const foeAllyChar = this.roster[this.foeAllyCharIdx] || this.roster[3];
         const foeAllyTag = this.twoVsTwoFormat === '4p' ? 'P4' : 'CPU2';
         foeAllyBtn.textContent = `${foeAllyTag}: ${foeAllyChar.name} ↻`;
       }
@@ -12040,8 +12141,8 @@ class SuperKickKingdomApp {
       else aiRow.classList.remove('hidden');
     }
 
-    this._populateFighterCard(0, CHARACTERS[this.charIdx0], this.kitIdx0);
-    this._populateFighterCard(1, CHARACTERS[this.charIdx1], this.kitIdx1);
+    this._populateFighterCard(0, this.roster[this.charIdx0], this.kitIdx0);
+    this._populateFighterCard(1, this.roster[this.charIdx1], this.kitIdx1);
 
     // Stadium Thumbnails (7 Biomes + 🎲 Random)
     const arenaBox = document.getElementById('arena-cards-container');
@@ -12130,7 +12231,7 @@ class SuperKickKingdomApp {
 
     const strip = document.getElementById(`roster-strip-${slot}`);
     strip.innerHTML = '';
-    CHARACTERS.forEach((c, idx) => {
+    this.roster.forEach((c, idx) => {
       const chipUnlocked = isCharUnlocked(this.save, c.id);
       const chip = document.createElement('button');
       chip.id = `roster-${slot}-${c.id}`;
@@ -12200,10 +12301,10 @@ class SuperKickKingdomApp {
   randomizePlayer(slot) {
     if (slot === 1 && (this.selectedMode === 'cup' || this._isMinigameMode())) return;
     this.audio.playClick();
-    const unlocked = CHARACTERS.filter((c) => isCharUnlocked(this.save, c.id));
+    const unlocked = this.roster.filter((c) => isCharUnlocked(this.save, c.id));
     if (unlocked.length === 0) return;
     const picked = unlocked[Math.floor(Math.random() * unlocked.length)];
-    const charIdx = CHARACTERS.findIndex((c) => c.id === picked.id);
+    const charIdx = this.roster.findIndex((c) => c.id === picked.id);
     const kitIdx = Math.floor(Math.random() * (picked.kits?.length || 1));
 
     if (slot === 0) {
@@ -12247,8 +12348,8 @@ class SuperKickKingdomApp {
     this._closeAllModals();
     this.practice = null;
     const token = ++this.matchToken;
-    const ch0 = CHARACTERS[this.charIdx0];
-    const ch1 = CHARACTERS[this.charIdx1];
+    const ch0 = this.roster[this.charIdx0];
+    const ch1 = this.roster[this.charIdx1];
     const arena = ARENAS[this.arenaIdx] || ARENAS[0];
     let introTitle = '';
     let playersConfig = [];
@@ -12267,8 +12368,8 @@ class SuperKickKingdomApp {
         { slot: 1, team: 1, tag: 'P2', charId: ch1.id, kitIdx: this.kitIdx1, isAI: false, role: 'striker' },
       ];
     } else if (this.selectedMode === '2v2') {
-      const ally = CHARACTERS[this.allyCharIdx] || CHARACTERS[1];
-      const foeAlly = CHARACTERS[this.foeAllyCharIdx] || CHARACTERS[(this.charIdx1 + 3) % CHARACTERS.length];
+      const ally = this.roster[this.allyCharIdx] || this.roster[1];
+      const foeAlly = this.roster[this.foeAllyCharIdx] || this.roster[(this.charIdx1 + 3) % this.roster.length];
       const fmt = this.twoVsTwoFormat || '4p';
 
       if (fmt === '4p') {
@@ -12315,8 +12416,8 @@ class SuperKickKingdomApp {
     } else if (this.selectedMode === 'cup') {
       introTitle = this.cupIntroTitle;
       if (this.cupCoop) {
-        const ally = CHARACTERS[this.allyCharIdx] || CHARACTERS[1];
-        const wingIdx = (this.charIdx1 + 2) % CHARACTERS.length;
+        const ally = this.roster[this.allyCharIdx] || this.roster[1];
+        const wingIdx = (this.charIdx1 + 2) % this.roster.length;
         playersConfig = [
           { slot: 0, team: 0, tag: 'P1', charId: ch0.id, kitIdx: this.kitIdx0, isAI: false, role: 'striker' },
           {
@@ -12343,7 +12444,7 @@ class SuperKickKingdomApp {
             slot: 3,
             team: 1,
             tag: 'CPU2',
-            charId: CHARACTERS[wingIdx].id,
+            charId: this.roster[wingIdx].id,
             kitIdx: 0,
             isAI: true,
             aiDifficulty: this.cupRoundAI,
@@ -12405,12 +12506,12 @@ class SuperKickKingdomApp {
     } else if (this.selectedMode === 'trial' && this.activeTrial) {
       const trial = this.activeTrial;
       introTitle = `TRIAL #${trial.num}: ${trial.title.toUpperCase()}`;
-      const pChar = CHARACTERS.find((c) => c.id === trial.playerChar) || ch0;
+      const pChar = this.roster.find((c) => c.id === trial.playerChar) || ch0;
       playersConfig = [
         { slot: 0, team: 0, tag: 'P1', charId: pChar.id, kitIdx: 0, isAI: false, role: 'striker' },
       ];
       trial.opponents.forEach((opp, idx) => {
-        const oppChar = CHARACTERS.find((c) => c.id === opp.charId) || ch1;
+        const oppChar = this.roster.find((c) => c.id === opp.charId) || ch1;
         playersConfig.push({
           slot: idx + 1,
           team: opp.team ?? 1,
@@ -12704,13 +12805,13 @@ class SuperKickKingdomApp {
           this.save.stats.cupsWon++;
           if (cup.unlocksChar && !this.save.unlockedChars.includes(cup.unlocksChar)) {
             this.save.unlockedChars.push(cup.unlocksChar);
-            const bossChar = CHARACTERS.find((c) => c.id === cup.unlocksChar);
+            const bossChar = this.roster.find((c) => c.id === cup.unlocksChar);
             if (bossChar) {
               this._pushToast(`BOSS UNLOCKED: ${bossChar.name}!`, `Conquered the ${cup.name}!`, '🔓');
             }
           }
           cupBanner.textContent = `🏆 ${cup.name.toUpperCase()} CONQUERED! 🏆`;
-          headline.textContent = `${CHARACTERS[this.charIdx0].name.toUpperCase()} IS CHAMPION!`;
+          headline.textContent = `${this.roster[this.charIdx0].name.toUpperCase()} IS CHAMPION!`;
         } else {
           cupBanner.textContent = `${cup.name.toUpperCase()} — ROUND ${this.cupRound + 1} VICTORY!`;
           headline.textContent = 'ADVANCING TO NEXT ROUND!';
@@ -12776,9 +12877,9 @@ class SuperKickKingdomApp {
       coinsEarned = 20 + humanGoals * 4 + (humanTeamWon ? 20 : 0);
 
       if (summary.winnerTeam === 0) {
-        headline.textContent = `${CHARACTERS[this.charIdx0].name.toUpperCase()} WINS!`;
+        headline.textContent = `${this.roster[this.charIdx0].name.toUpperCase()} WINS!`;
       } else if (summary.winnerTeam === 1) {
-        headline.textContent = `${CHARACTERS[this.charIdx1].name.toUpperCase()} WINS!`;
+        headline.textContent = `${this.roster[this.charIdx1].name.toUpperCase()} WINS!`;
       } else {
         headline.textContent = 'EPIC DRAW!';
       }
@@ -13204,7 +13305,7 @@ class SuperKickKingdomApp {
 
     const drawOne = (pctx, charIdx, kitIdx, facing, kickT) => {
       pctx.clearRect(0, 0, 260, 250);
-      const ch = getCharacter(CHARACTERS[charIdx].id, kitIdx);
+      const ch = getCharacter(this.roster[charIdx].id, kitIdx);
       const metrics = CHAR_SPRITE_METRICS[ch.id] || CHAR_SPRITE_METRICS.mario;
 
       const centerX = 130;

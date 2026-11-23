@@ -1,5 +1,5 @@
 // Super Kick Kingdom 2.0 (Deluxe Edition) — Master Configuration
-// 12 strikers, 7 stadiums, 18 items, 9 mutators, 4 cups and 26 trophies.
+// 12 regular strikers plus a code-only squad, 7 stadiums, 18 items, 9 mutators, 4 cups and 26 trophies.
 
 export const VIRTUAL_WIDTH = 1920;
 export const VIRTUAL_HEIGHT = 1080;
@@ -12,7 +12,7 @@ export const COURIER_LAYOUT = {
   itemRadius: 40,
 };
 
-export const CHARACTERS = [
+export const STANDARD_CHARACTERS = [
   {
     id: 'mario',
     name: 'Mario',
@@ -339,6 +339,58 @@ export const CHARACTERS = [
     displayStats: { speed: 5, jump: 4, power: 4, weight: 3 },
   },
 ];
+
+function weddingStriker({ id, name, title, color, accent, traitName, traitDesc, hyperName, hyperStyle, stats, displayStats }) {
+  const kits = [
+    { name: 'Match Night', primary: color, secondary: '#19283d', accent, aura: accent },
+    { name: 'Silver Away', primary: '#cbd5e1', secondary: '#334155', accent: '#ffffff', aura: '#dbeafe' },
+    { name: 'Golden Hour', primary: '#e4ad43', secondary: '#493316', accent: '#fff4b5', aura: '#fde68a' },
+  ];
+  return { ...kits[0], id, name, title, emblem: name[0], traitName, traitDesc, hyperName, hyperStyle,
+    kits, particleColor: accent, voiceBase: 270, voiceStyle: 'hero',
+    stats: { speed: 1, jump: 1, power: 1, size: 1, weight: 1, ...stats }, displayStats };
+}
+
+export const WEDDING_SQUAD = [
+  weddingStriker({ id: 'livne', name: 'Livne', title: 'Wedding Captain', color: '#215076', accent: '#ffd373',
+    traitName: 'Captain’s Finish', traitDesc: 'Extra striking power makes a clean volley count.',
+    hyperName: 'First Dance', hyperStyle: 'vacuum_lob', stats: { power: 1.12 },
+    displayStats: { speed: 4, jump: 4, power: 5, weight: 3 } }),
+  weddingStriker({ id: 'dani', name: 'Dani', title: 'Curl Specialist', color: '#8156ba', accent: '#ebc5ff',
+    traitName: 'Bend the Ball', traitDesc: 'Adds spin to send shots curling past the keeper.',
+    hyperName: 'Ribbon Curl', hyperStyle: 'whip_curve', stats: { autoSpin: 1, weight: 0.95 },
+    displayStats: { speed: 4, jump: 4, power: 4, weight: 3 } }),
+  weddingStriker({ id: 'dor', name: 'Dor', title: 'Back Line Anchor', color: '#208c86', accent: '#a5f3df',
+    traitName: 'Hold the Line', traitDesc: 'A heavier stance and stronger knockback in close challenges.',
+    hyperName: 'Velvet Hammer', hyperStyle: 'heavy_shock', stats: { brawlBoost: 1.25, weight: 1.18, speed: 0.96 },
+    displayStats: { speed: 3, jump: 4, power: 4, weight: 5 } }),
+  weddingStriker({ id: 'shahar', name: 'Shahar', title: 'Breakaway Runner', color: '#d96038', accent: '#ffcea0',
+    traitName: 'Fast Break', traitDesc: 'Extra sprint speed to reach a loose ball first.',
+    hyperName: 'Golden Sprint', hyperStyle: 'zero_g_laser', stats: { speed: 1.12, power: 0.98 },
+    displayStats: { speed: 5, jump: 4, power: 3, weight: 3 } }),
+  weddingStriker({ id: 'tal', name: 'Tal', title: 'Crossbar Acrobat', color: '#418846', accent: '#d2efa1',
+    traitName: 'Up and Over', traitDesc: 'A higher leap puts crosses within reach.',
+    hyperName: 'Bouquet Lob', hyperStyle: 'dip_meteor', stats: { jump: 1.13, speed: 0.98 },
+    displayStats: { speed: 3, jump: 5, power: 4, weight: 3 } }),
+  weddingStriker({ id: 'ziv', name: 'Ziv', title: 'Second-Chance Striker', color: '#386bc2', accent: '#aedcff',
+    traitName: 'Encore', traitDesc: 'Gets an extra lift on the second jump.',
+    hyperName: 'Encore Rebound', hyperStyle: 'ricochet_hyper', stats: { doubleJumpBoost: 1.16, weight: 0.94 },
+    displayStats: { speed: 4, jump: 5, power: 4, weight: 2 } }),
+];
+
+// Enable only with the approved portrait and animation atlas for every squad member.
+export const WEDDING_ART_READY = false;
+export const CHARACTERS = WEDDING_ART_READY ? [...STANDARD_CHARACTERS, ...WEDDING_SQUAD] : STANDARD_CHARACTERS;
+export function rosterForSave(save) {
+  return save?.weddingSquadUnlocked === true ? CHARACTERS : STANDARD_CHARACTERS;
+}
+
+export function redeemRosterCode(save, code) {
+  if (typeof code !== 'string' || code.trim().toUpperCase().replace(/’/g, "'") !== "LIVNE-GETTING-MARRIED'") return 'invalid';
+  if (save.weddingSquadUnlocked) return 'already-unlocked';
+  save.weddingSquadUnlocked = true;
+  return 'unlocked';
+}
 
 export const ITEMS = [
   // Classic 10 Authentic Mario Items
@@ -843,7 +895,7 @@ export const TROPHIES = [
   { id: 'keepup_pro', name: 'Lava Juggler', desc: 'Survive 45+ seconds in Keep-Up Survival.', reward: 60 },
   { id: 'gauntlet_wall', name: 'Iron Gloves', desc: 'Save 15+ cannon shots in Goalie Gauntlet.', reward: 60 },
   { id: 'mutator_madness', name: 'Mad Scientist', desc: 'Play a match with 3+ Party Mutators active.', reward: 35 },
-  { id: 'collector', name: 'Full Squad', desc: 'Unlock all 12 playable strikers.', reward: 100 },
+  { id: 'collector', name: 'Full Squad', desc: 'Unlock all 12 regular strikers.', reward: 100 },
   { id: 'fashionista', name: 'Style Icon', desc: 'Unlock a custom Ball Skin and Goal Explosion.', reward: 50 },
   { id: 'trial_initiate', name: 'Dojo Initiate', desc: 'Conquer your first Striker Trial.', reward: 50 },
   { id: 'trial_grandmaster', name: 'Kung-Foot Grandmaster', desc: 'Conquer all 8 Striker Trials with Star Medals!', reward: 200 },
@@ -1105,13 +1157,14 @@ export function normalizeSettings(value) {
 }
 
 export function normalizeSaveData(value) {
-  const defaultUnlockedChars = CHARACTERS.filter((c) => c.unlockedByDefault).map((c) => c.id);
+  const defaultUnlockedChars = STANDARD_CHARACTERS.filter((c) => c.unlockedByDefault).map((c) => c.id);
   const base = {
     version: 3,
     settings: { ...DEFAULT_SETTINGS, activeMutators: [] },
     controls: JSON.parse(JSON.stringify(DEFAULT_CONTROLS)),
     coins: 150, // Welcome starter purse so players can try the Locker Room right away!
     unlockedChars: defaultUnlockedChars,
+    weddingSquadUnlocked: false,
     unlockedBalls: ['classic'],
     unlockedExplosions: ['confetti'],
     wonCups: [],
@@ -1134,7 +1187,8 @@ export function normalizeSaveData(value) {
   ])];
   base.settings = normalizeSettings(value.settings);
   if (Number.isFinite(value.coins) && typeof value.coins === 'number') base.coins = Math.max(0, Math.floor(value.coins));
-  base.unlockedChars = collection('unlockedChars', CHARACTERS, defaultUnlockedChars);
+  base.unlockedChars = collection('unlockedChars', STANDARD_CHARACTERS, defaultUnlockedChars);
+  base.weddingSquadUnlocked = value.weddingSquadUnlocked === true;
   base.unlockedBalls = collection('unlockedBalls', BALL_SKINS, ['classic']);
   base.unlockedExplosions = collection('unlockedExplosions', GOAL_EXPLOSIONS, ['confetti']);
   base.wonCups = collection('wonCups', GRAND_PRIX_CUPS);
@@ -1223,6 +1277,7 @@ export function getArena(id) {
 }
 
 export function isCharUnlocked(save, charId) {
+  if (WEDDING_SQUAD.some(c => c.id === charId)) return WEDDING_ART_READY && save?.weddingSquadUnlocked === true;
   if (save?.settings?.partyUnlockAll) return true;
   return Boolean(save?.unlockedChars?.includes(charId));
 }

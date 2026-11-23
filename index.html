@@ -8,7 +8,7 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#090b16" />
   <title>Super Mario Football Deluxe (Kung-Foot 2.0)</title>
-  <link rel="stylesheet" href="./styles.css?v=98884692fc39" />
+  <link rel="stylesheet" href="./styles.css?v=e1b5934330de" />
 </head>
 <body data-screen="menu">
   <!-- Mobile Rotate-to-Landscape Guidance Overlay -->
@@ -165,7 +165,7 @@
         <aside class="hero-feature" aria-label="Game features">
           <span class="feature-kicker">MATCH NIGHT / DELUXE</span>
           <div class="feature-copy"><strong>Small pitch.<br>Big moments.</strong><span>1–4 local players · No account needed</span></div>
-          <div class="feature-stats"><span><b>12</b> STRIKERS</span><span><b>07</b> STADIUMS</span><span><b>18</b> POWER-UPS</span></div>
+          <div class="feature-stats"><span><b id="menu-roster-count">12</b> STRIKERS</span><span><b>07</b> STADIUMS</span><span><b>18</b> POWER-UPS</span></div>
         </aside>
         </div>
         <div class="section-heading"><span>CHOOSE YOUR NEXT MATCH</span><span>PLAY YOUR WAY</span></div>
@@ -248,6 +248,7 @@
           <button id="btn-open-controls" class="dock-btn">🎮 CONTROLS</button>
           <button id="btn-open-codex" class="dock-btn">🍄 CODEX (18)</button>
           <button id="btn-mode-mutators" class="dock-btn">🧪 MUTATORS <span id="menu-mutator-badge" class="dock-pill">0 ACTIVE</span></button>
+          <button id="btn-enter-code" class="dock-btn code-btn" aria-haspopup="dialog">Enter code</button>
         </div>
         <p class="menu-credit">A fan-made local arcade game, inspired by S&amp;A Games' 2019 classic.</p>
       </section>
@@ -593,6 +594,19 @@
         </div>
       </div>
 
+      <div id="modal-roster-code" class="modal-backdrop hidden">
+        <form id="roster-code-form" class="modal-box compact-modal">
+          <div class="modal-header">
+            <h2 class="modal-title">Enter code</h2>
+            <button type="button" class="modal-close" data-close="modal-roster-code" aria-label="Close code entry">✕</button>
+          </div>
+          <label for="roster-code">Roster unlock code</label>
+          <input id="roster-code" type="text" maxlength="64" autocomplete="off" autocapitalize="characters" spellcheck="false" />
+          <p id="roster-code-status" class="modal-note" role="status"></p>
+          <button type="submit" class="kickoff-cta-btn compact">Unlock</button>
+        </form>
+      </div>
+
       <div id="modal-online" class="modal-backdrop hidden">
         <div class="modal-box wide-modal online-modal">
           <div class="modal-header">
@@ -876,6 +890,6 @@
 
   <!-- Bundled from modular src/*.js via `node build.mjs` so file:// & itch.io both work out of the box -->
   <script defer src="./dist/peerjs.min.js?v=7604d8c31bec"></script>
-  <script defer src="./dist/bundle.js?v=def12420ce82"></script>
+  <script defer src="./dist/bundle.js?v=16d7923c11b9"></script>
 </body>
 </html>

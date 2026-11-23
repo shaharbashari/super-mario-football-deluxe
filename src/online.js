@@ -117,7 +117,9 @@ export class OnlineRoom {
       const peer = await this._open(undefined);
       if (generation !== this.generation) return;
       const connection = peer.connect(ONLINE_PREFIX + normalized, {
-        label: 'smfd-room', serialization: 'json', reliable: true,
+        // PeerJS's JSON channel rejects messages over 16 KB. Binary chunks larger
+        // snapshots and delivers the same bounded JSON string to our decoder.
+        label: 'smfd-room', serialization: 'binary', reliable: true,
         metadata: { app: ONLINE_PREFIX, version: ONLINE_VERSION },
       });
       this.hostConnection = connection;

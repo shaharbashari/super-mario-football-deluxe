@@ -1,6 +1,6 @@
 // Canvas renderer with bounded frame caches, shared animation timing and readable hazard cues.
 
-import { VIRTUAL_WIDTH, VIRTUAL_HEIGHT, CHARACTERS, ITEMS, BALL_SKINS, FIELD_CHARACTER_DRAW_SIZE, COURIER_LAYOUT } from './config.js';
+import { VIRTUAL_WIDTH, VIRTUAL_HEIGHT, STANDARD_CHARACTERS, WEDDING_SQUAD, ITEMS, BALL_SKINS, FIELD_CHARACTER_DRAW_SIZE, COURIER_LAYOUT } from './config.js';
 import { characterFrame, itemMotion } from './animation.js';
 
 const INK = '#151020';
@@ -55,10 +55,15 @@ export const CHAR_SPRITE_METRICS = {
   rosalina: { drawSize: 202, footY: 0.968, airShiftY: 3 },
   king_boo: { drawSize: 184, footY: 0.880, airShiftY: 0 },
   bowser_jr: { drawSize: 144, footY: 0.968, airShiftY: 3 },
+  ...Object.fromEntries(WEDDING_SQUAD.map(({ id }) => [id, { drawSize: 172, footY: 0.968, airShiftY: 3 }])),
 };
 
 // Curated GPU CSS-Filter recipes for Kit 1 & Kit 2 across all 12 strikers (preserves crisp ink & cel shading!)
 const KIT_FILTER_SPECS = {
+  ...Object.fromEntries(WEDDING_SQUAD.flatMap(({ id }) => [
+    [`${id}:1`, { filter: 'grayscale(1) brightness(1.18)', glaze: '#cbd5e1', glazeAlpha: 0.12 }],
+    [`${id}:2`, { filter: 'sepia(1) saturate(1.6)', glaze: '#f9cb69', glazeAlpha: 0.12 }],
+  ])),
   'mario:1': { filter: 'hue-rotate(-12deg) saturate(1.15) brightness(1.18) contrast(1.06)', glaze: '#ffffff', glazeAlpha: 0.16 },
   'mario:2': { filter: 'hue-rotate(46deg) saturate(1.38) brightness(1.08)', glaze: '#fde047', glazeAlpha: 0.1 },
   'luigi:1': { filter: 'hue-rotate(44deg) saturate(1.18) brightness(1.10)', glaze: '#2dd4bf', glazeAlpha: 0.1 },
@@ -117,7 +122,7 @@ export class ArtRenderer {
     }
 
     const spriteKeys = [
-      ...CHARACTERS.map((c) => `portrait_${c.id}`),
+      ...STANDARD_CHARACTERS.map((c) => `portrait_${c.id}`),
       'props_atlas',
       'balls_atlas',
       'items_atlas',
@@ -253,6 +258,7 @@ export class ArtRenderer {
 
   // Public helper for UI cards / Locker / Roster portraits!
   drawCharacterPortrait(ctx, charObj, cx, cy, size) {
+    this._requestImage(`portrait_${charObj.id}`, `./assets/sprites/portrait_${charObj.id}.png`, this.sprites);
     const portrait = this.sprites[`portrait_${charObj.id}`];
     const sheet = this._getCharSheet(charObj);
     ctx.save();

@@ -55,10 +55,25 @@ test('real room-code 1v1 synchronizes input, pauses, results, rematches and disc
     await expect.poll(() => host.page.evaluate(() => app.paused)).toBe(true);
     await guest.page.locator('#btn-coach-ready').click();
     await expect.poll(() => guest.page.evaluate(() => app.paused)).toBe(false);
+    await guest.page.evaluate(() => {
+      const art = app.art, draw = art.drawCharacterPuppet;
+      window.guestRunFrames = new Set();
+      art.drawCharacterPuppet = function(ctx, player, balls, time, options) {
+        if (options?.onField && player.slot === 1 && player.facing === -1) {
+          const frame = this._selectCharFrameCoords(player, time);
+          if (frame.row === 1) window.guestRunFrames.add(frame.col);
+        }
+        return draw.call(this, ctx, player, balls, time, options);
+      };
+    });
     const startX = await host.page.evaluate(() => app.match.players[1].x);
     await guest.page.keyboard.down('KeyA');
     await expect.poll(() => host.page.evaluate(() => app.match.players[1].x)).toBeLessThan(startX - 40);
+    await expect.poll(() => guest.page.evaluate(() => window.guestRunFrames.size)).toBeGreaterThan(1);
     await guest.page.keyboard.up('KeyA');
+    await guest.page.keyboard.down('KeyD');
+    await guest.page.waitForFunction(() => app.match.players[1].facing === 1 && app.match.players[1].vx > 100);
+    await guest.page.keyboard.up('KeyD');
     await expect.poll(async () => {
       const [a, b] = await Promise.all([
         host.page.evaluate(() => app.match.players[1].x),
@@ -66,6 +81,26 @@ test('real room-code 1v1 synchronizes input, pauses, results, rematches and disc
       ]);
       return Math.abs(a - b);
     }).toBeLessThan(80);
+    // A busy frame with clones and multiball can exceed the old JSON channel's 16 KB limit.
+    await guest.page.evaluate(() => {
+      const view = app.online.remote, receive = view.receive;
+      view.receive = function(state) {
+        if (state.bannerSub === 'busy-frame') window.receivedBusyFrame = state.balls.length === 16;
+        return receive.call(this, state);
+      };
+    });
+    const bytes = await host.page.evaluate(() => {
+      const state = app.online.encoder.capture(app.match);
+      const players = state.players, ball = state.balls[0];
+      state.players = Array.from({ length: 8 }, (_, i) => ({ ...players[i % 2], netId: 100 + i, isClone: i >= 2 }));
+      state.balls = Array.from({ length: 16 }, (_, i) => ({ ...ball, netId: 200 + i,
+        trail: Array.from({ length: 10 }, (_, j) => ({ x: 911.123 + j, y: 450.987 - j })) }));
+      state.bannerSub = 'busy-frame';
+      app.online.room.sendState(state);
+      return new TextEncoder().encode(JSON.stringify(state)).length;
+    });
+    expect(bytes).toBeGreaterThan(16300);
+    await guest.page.waitForFunction(() => window.receivedBusyFrame);
     await guest.page.locator('#btn-pause').click();
     await expect.poll(() => host.page.evaluate(() => app.paused)).toBe(true);
     await host.page.locator('#btn-pause').click();

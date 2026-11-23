@@ -27,6 +27,35 @@ async function start(page, mode = '1v1_cpu') {
   await page.waitForFunction(() => app.art.pendingAssets === 0);
 }
 
+test('roster code entry accepts the literal apostrophe and persists without exposing unavailable art', async ({ page }) => {
+  await page.goto('/');
+  const button = page.getByRole('button', { name: 'Enter code', exact: true });
+  await button.click();
+  const field = page.getByLabel('Roster unlock code');
+  await expect(field).toBeFocused();
+  await field.fill('wrong');
+  await field.press('Enter');
+  await expect(page.locator('#roster-code-status')).toContainText('not recognized');
+  await field.fill("LIVNE-GETTING-MARRIED'");
+  await field.press('Enter');
+  await expect(page.locator('#roster-code-status')).toHaveText(/Code accepted|Wedding squad unlocked/);
+  await page.keyboard.press('Escape');
+  await expect(button).toBeFocused();
+  await page.reload();
+  await page.waitForFunction(() => window.app?.save.weddingSquadUnlocked);
+  const { count, secretIds } = await page.evaluate(async () => {
+    const { WEDDING_ART_READY, WEDDING_SQUAD } = await import('/src/config.js');
+    return { count: WEDDING_ART_READY ? 18 : 12, secretIds: WEDDING_ART_READY ? WEDDING_SQUAD.map(c => c.id) : [] };
+  });
+  await page.locator('#btn-mode-online').click();
+  await expect(page.locator('#online-char option')).toHaveCount(count);
+  for (const id of secretIds) await expect(page.locator(`#online-char option[value="${id}"]`)).toBeEnabled();
+  await page.locator('[data-close="modal-online"]').click();
+  await page.locator('[data-mode="1v1_cpu"]').click();
+  await expect(page.locator('#roster-strip-0 button')).toHaveCount(count);
+  expect(await page.evaluate(() => app.art.failedAssets)).toEqual([]);
+});
+
 async function overlaps(page, first, second) {
   return page.evaluate(([first, second]) => {
     const a = document.querySelector(first).getBoundingClientRect();

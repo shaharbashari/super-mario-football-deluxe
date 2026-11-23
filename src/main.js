@@ -3,7 +3,10 @@
 import {
   VIRTUAL_WIDTH,
   VIRTUAL_HEIGHT,
-  CHARACTERS,
+  STANDARD_CHARACTERS,
+  WEDDING_ART_READY,
+  rosterForSave,
+  redeemRosterCode,
   ARENAS,
   ITEMS,
   MUTATORS,
@@ -149,6 +152,8 @@ export class SuperKickKingdomApp {
     requestAnimationFrame((ts) => this._loop(ts));
   }
 
+  get roster() { return rosterForSave(this.save); }
+
   _persist() {
     this.save.settings = this.settings;
     this.save.controls = this.controls;
@@ -167,6 +172,7 @@ export class SuperKickKingdomApp {
   }
 
   _syncMenuBadges() {
+    document.getElementById('menu-roster-count').textContent = String(this.roster.length);
     const coinsStr = String(this.save.coins);
     const topCoins = document.getElementById('top-coin-count');
     if (topCoins) topCoins.textContent = coinsStr;
@@ -251,7 +257,7 @@ export class SuperKickKingdomApp {
   }
 
   _checkCollectionTrophies() {
-    if (this.save.unlockedChars.length >= CHARACTERS.length) {
+    if (this.save.unlockedChars.length >= STANDARD_CHARACTERS.length) {
       this._unlockTrophy('collector');
     }
     if (this.save.unlockedBalls.length >= 2 && this.save.unlockedExplosions.length >= 2) {
@@ -364,6 +370,31 @@ export class SuperKickKingdomApp {
     }
 
     // Main Menu Footer Buttons
+    const codeInput = document.getElementById('roster-code');
+    const codeStatus = document.getElementById('roster-code-status');
+    document.getElementById('btn-enter-code').addEventListener('click', () => {
+      codeInput.value = '';
+      codeStatus.textContent = '';
+      this._openModal('modal-roster-code');
+      codeInput.focus();
+    });
+    document.getElementById('roster-code-form').addEventListener('submit', event => {
+      event.preventDefault();
+      const result = redeemRosterCode(this.save, codeInput.value);
+      if (result === 'invalid') {
+        codeStatus.textContent = 'Code not recognized. Check the spelling and punctuation.';
+        codeInput.select();
+      } else {
+        if (result === 'unlocked') {
+          this._persist();
+          this.audio.playClick();
+        }
+        codeStatus.textContent = !WEDDING_ART_READY
+          ? 'Code accepted. The six wedding strikers will appear in character select when their artwork is ready.'
+          : result === 'already-unlocked' ? 'The wedding squad is already on your roster.'
+          : 'Wedding squad unlocked! All six strikers are ready for local and online play.';
+      }
+    });
     document.getElementById('btn-open-locker').addEventListener('click', () => {
       this.audio.playClick();
       this._openLockerModal('chars');
@@ -903,7 +934,7 @@ export class SuperKickKingdomApp {
   _startPractice() {
     this.selectedMode = 'practice';
     this.arenaIdx = 0;
-    if (!isCharUnlocked(this.save, CHARACTERS[this.charIdx0].id)) this.charIdx0 = 0;
+    if (!isCharUnlocked(this.save, this.roster[this.charIdx0].id)) this.charIdx0 = 0;
     this.startMatch();
   }
 
@@ -986,7 +1017,7 @@ export class SuperKickKingdomApp {
 
     for (const cup of GRAND_PRIX_CUPS) {
       const won = this.save.wonCups.includes(cup.id);
-      const unlockChar = CHARACTERS.find((c) => c.id === cup.unlocksChar);
+      const unlockChar = this.roster.find((c) => c.id === cup.unlocksChar);
       const card = document.createElement('div');
       card.className = `cup-card ${won ? 'conquered' : ''}`;
       card.innerHTML = `
@@ -1023,7 +1054,7 @@ export class SuperKickKingdomApp {
     const round = cup.rounds[Math.min(this.cupRound, cup.rounds.length - 1)];
     const arIdx = ARENAS.findIndex((a) => a.id === round.arenaId);
     this.arenaIdx = arIdx >= 0 ? arIdx : 0;
-    const foeIdx = CHARACTERS.findIndex((c) => c.id === round.foeId);
+    const foeIdx = this.roster.findIndex((c) => c.id === round.foeId);
     this.charIdx1 = foeIdx >= 0 ? foeIdx : 5;
     this.kitIdx1 = round.kitIdx || 0;
     this.cupBossScale = round.bossScale || 1.0;
@@ -1078,12 +1109,12 @@ export class SuperKickKingdomApp {
   _startTrial(trial) {
     this.activeTrial = trial;
     this.selectedMode = 'trial';
-    const playerCharIdx = CHARACTERS.findIndex((c) => c.id === trial.playerChar);
+    const playerCharIdx = this.roster.findIndex((c) => c.id === trial.playerChar);
     this.charIdx0 = playerCharIdx >= 0 ? playerCharIdx : 0;
     this.kitIdx0 = 0;
 
     const firstOpponent = trial.opponents[0];
-    const foeIdx = CHARACTERS.findIndex((c) => c.id === firstOpponent.charId);
+    const foeIdx = this.roster.findIndex((c) => c.id === firstOpponent.charId);
     this.charIdx1 = foeIdx >= 0 ? foeIdx : 1;
     this.kitIdx1 = firstOpponent.kitIdx || 0;
 
@@ -1114,16 +1145,16 @@ export class SuperKickKingdomApp {
       b.classList.toggle('active', Number(b.dataset.humans) === humans);
     });
 
-    const unlockedPool = CHARACTERS.filter((c) => isCharUnlocked(this.save, c.id));
+    const unlockedPool = this.roster.filter((c) => isCharUnlocked(this.save, c.id));
     const shuffledUnlocked = [...unlockedPool].sort(() => Math.random() - 0.5);
-    const allPool = [...CHARACTERS].sort(() => Math.random() - 0.5);
+    const allPool = [...this.roster].sort(() => Math.random() - 0.5);
 
     const entrants = [];
     for (let h = 0; h < humans; h++) {
       let chosen = shuffledUnlocked[h % shuffledUnlocked.length];
-      if (h === 0 && isCharUnlocked(this.save, CHARACTERS[this.charIdx0].id)) chosen = CHARACTERS[this.charIdx0];
-      else if (h === 1 && isCharUnlocked(this.save, CHARACTERS[this.charIdx1].id)) {
-        chosen = CHARACTERS[this.charIdx1];
+      if (h === 0 && isCharUnlocked(this.save, this.roster[this.charIdx0].id)) chosen = this.roster[this.charIdx0];
+      else if (h === 1 && isCharUnlocked(this.save, this.roster[this.charIdx1].id)) {
+        chosen = this.roster[this.charIdx1];
       }
       entrants.push({
         id: `H${h + 1}`,
@@ -1304,9 +1335,9 @@ export class SuperKickKingdomApp {
 
     this.tourneyState.activeMatch = nextMatch;
     this.selectedMode = 'tourney';
-    this.charIdx0 = Math.max(0, CHARACTERS.findIndex((c) => c.id === nextMatch.pA.charId));
+    this.charIdx0 = Math.max(0, this.roster.findIndex((c) => c.id === nextMatch.pA.charId));
     this.kitIdx0 = nextMatch.pA.kitIdx || 0;
-    this.charIdx1 = Math.max(0, CHARACTERS.findIndex((c) => c.id === nextMatch.pB.charId));
+    this.charIdx1 = Math.max(0, this.roster.findIndex((c) => c.id === nextMatch.pB.charId));
     this.kitIdx1 = nextMatch.pB.kitIdx || 0;
     this.arenaIdx = Math.max(0, ARENAS.findIndex((a) => a.id === nextMatch.arenaId));
 
@@ -1380,7 +1411,7 @@ export class SuperKickKingdomApp {
     if (this.lockerTab === 'chars') {
       const grid = document.createElement('div');
       grid.className = 'locker-grid';
-      for (const ch of CHARACTERS) {
+      for (const ch of this.roster) {
         const unlocked = isCharUnlocked(this.save, ch.id);
         const card = document.createElement('div');
         card.className = `locker-item-card ${unlocked ? 'unlocked' : ''}`;
@@ -1712,11 +1743,11 @@ export class SuperKickKingdomApp {
     if (slot === 1 && (this.selectedMode === 'cup' || this._isMinigameMode())) return;
     this.audio.playClick();
     if (slot === 0) {
-      this.charIdx0 = (this.charIdx0 + CHARACTERS.length + dir) % CHARACTERS.length;
+      this.charIdx0 = (this.charIdx0 + this.roster.length + dir) % this.roster.length;
       this.previewKickTimer0 = 0.25;
       this._ensureValidAlly();
     } else {
-      this.charIdx1 = (this.charIdx1 + CHARACTERS.length + dir) % CHARACTERS.length;
+      this.charIdx1 = (this.charIdx1 + this.roster.length + dir) % this.roster.length;
       this.previewKickTimer1 = 0.25;
       this._ensureValidFoeAlly();
     }
@@ -1737,9 +1768,9 @@ export class SuperKickKingdomApp {
   }
 
   _ensureValidAlly() {
-    if (this.allyCharIdx === this.charIdx0 || !isCharUnlocked(this.save, CHARACTERS[this.allyCharIdx].id)) {
-      for (let i = 0; i < CHARACTERS.length; i++) {
-        if (i !== this.charIdx0 && isCharUnlocked(this.save, CHARACTERS[i].id)) {
+    if (this.allyCharIdx === this.charIdx0 || !isCharUnlocked(this.save, this.roster[this.allyCharIdx].id)) {
+      for (let i = 0; i < this.roster.length; i++) {
+        if (i !== this.charIdx0 && isCharUnlocked(this.save, this.roster[i].id)) {
           this.allyCharIdx = i;
           return;
         }
@@ -1748,9 +1779,9 @@ export class SuperKickKingdomApp {
   }
 
   _cycleAlly() {
-    for (let step = 1; step <= CHARACTERS.length; step++) {
-      const cand = (this.allyCharIdx + step) % CHARACTERS.length;
-      if (cand !== this.charIdx0 && isCharUnlocked(this.save, CHARACTERS[cand].id)) {
+    for (let step = 1; step <= this.roster.length; step++) {
+      const cand = (this.allyCharIdx + step) % this.roster.length;
+      if (cand !== this.charIdx0 && isCharUnlocked(this.save, this.roster[cand].id)) {
         this.allyCharIdx = cand;
         this.allyKitIdx = (this.allyKitIdx + 1) % 3;
         break;
@@ -1763,22 +1794,22 @@ export class SuperKickKingdomApp {
     if (
       this.foeAllyCharIdx === undefined ||
       this.foeAllyCharIdx === this.charIdx1 ||
-      !isCharUnlocked(this.save, CHARACTERS[this.foeAllyCharIdx].id)
+      !isCharUnlocked(this.save, this.roster[this.foeAllyCharIdx].id)
     ) {
-      for (let i = 0; i < CHARACTERS.length; i++) {
-        if (i !== this.charIdx1 && isCharUnlocked(this.save, CHARACTERS[i].id)) {
+      for (let i = 0; i < this.roster.length; i++) {
+        if (i !== this.charIdx1 && isCharUnlocked(this.save, this.roster[i].id)) {
           this.foeAllyCharIdx = i;
           return;
         }
       }
-      this.foeAllyCharIdx = (this.charIdx1 + 3) % CHARACTERS.length;
+      this.foeAllyCharIdx = (this.charIdx1 + 3) % this.roster.length;
     }
   }
 
   _cycleFoeAlly() {
-    for (let step = 1; step <= CHARACTERS.length; step++) {
-      const cand = (this.foeAllyCharIdx + step) % CHARACTERS.length;
-      if (cand !== this.charIdx1 && isCharUnlocked(this.save, CHARACTERS[cand].id)) {
+    for (let step = 1; step <= this.roster.length; step++) {
+      const cand = (this.foeAllyCharIdx + step) % this.roster.length;
+      if (cand !== this.charIdx1 && isCharUnlocked(this.save, this.roster[cand].id)) {
         this.foeAllyCharIdx = cand;
         this.foeAllyKitIdx = ((this.foeAllyKitIdx || 0) + 1) % 3;
         break;
@@ -1789,7 +1820,7 @@ export class SuperKickKingdomApp {
 
   _tryUnlockSelectChar(slot) {
     const idx = slot === 0 ? this.charIdx0 : this.charIdx1;
-    const ch = CHARACTERS[idx];
+    const ch = this.roster[idx];
     if (isCharUnlocked(this.save, ch.id)) return;
     if (this.save.coins >= ch.unlockCost) {
       this.save.coins -= ch.unlockCost;
@@ -1810,14 +1841,14 @@ export class SuperKickKingdomApp {
   }
 
   _attemptStartFromSelect() {
-    const ch0 = CHARACTERS[this.charIdx0];
+    const ch0 = this.roster[this.charIdx0];
     if (!isCharUnlocked(this.save, ch0.id)) {
       this._tryUnlockSelectChar(0);
       return;
     }
     if (this.selectedMode === '1v1_pvp' ||
         (this.selectedMode === '2v2' && ['4p', '3p', 'duel'].includes(this.twoVsTwoFormat))) {
-      const ch1 = CHARACTERS[this.charIdx1];
+      const ch1 = this.roster[this.charIdx1];
       if (!isCharUnlocked(this.save, ch1.id)) {
         this._tryUnlockSelectChar(1);
         return;
@@ -1848,7 +1879,7 @@ export class SuperKickKingdomApp {
     const allyBtn = document.getElementById('btn-cycle-ally');
     allyBtn.classList.toggle('hidden', !showAllyBtn);
     if (showAllyBtn) {
-      const allyChar = CHARACTERS[this.allyCharIdx];
+      const allyChar = this.roster[this.allyCharIdx];
       const allyTag =
         is2v2 && (this.twoVsTwoFormat === '4p' || this.twoVsTwoFormat === '3p')
           ? 'P3'
@@ -1863,7 +1894,7 @@ export class SuperKickKingdomApp {
       foeAllyBtn.classList.toggle('hidden', !is2v2);
       if (is2v2) {
         this._ensureValidFoeAlly();
-        const foeAllyChar = CHARACTERS[this.foeAllyCharIdx] || CHARACTERS[3];
+        const foeAllyChar = this.roster[this.foeAllyCharIdx] || this.roster[3];
         const foeAllyTag = this.twoVsTwoFormat === '4p' ? 'P4' : 'CPU2';
         foeAllyBtn.textContent = `${foeAllyTag}: ${foeAllyChar.name} ↻`;
       }
@@ -1918,8 +1949,8 @@ export class SuperKickKingdomApp {
       else aiRow.classList.remove('hidden');
     }
 
-    this._populateFighterCard(0, CHARACTERS[this.charIdx0], this.kitIdx0);
-    this._populateFighterCard(1, CHARACTERS[this.charIdx1], this.kitIdx1);
+    this._populateFighterCard(0, this.roster[this.charIdx0], this.kitIdx0);
+    this._populateFighterCard(1, this.roster[this.charIdx1], this.kitIdx1);
 
     // Stadium Thumbnails (7 Biomes + 🎲 Random)
     const arenaBox = document.getElementById('arena-cards-container');
@@ -2008,7 +2039,7 @@ export class SuperKickKingdomApp {
 
     const strip = document.getElementById(`roster-strip-${slot}`);
     strip.innerHTML = '';
-    CHARACTERS.forEach((c, idx) => {
+    this.roster.forEach((c, idx) => {
       const chipUnlocked = isCharUnlocked(this.save, c.id);
       const chip = document.createElement('button');
       chip.id = `roster-${slot}-${c.id}`;
@@ -2078,10 +2109,10 @@ export class SuperKickKingdomApp {
   randomizePlayer(slot) {
     if (slot === 1 && (this.selectedMode === 'cup' || this._isMinigameMode())) return;
     this.audio.playClick();
-    const unlocked = CHARACTERS.filter((c) => isCharUnlocked(this.save, c.id));
+    const unlocked = this.roster.filter((c) => isCharUnlocked(this.save, c.id));
     if (unlocked.length === 0) return;
     const picked = unlocked[Math.floor(Math.random() * unlocked.length)];
-    const charIdx = CHARACTERS.findIndex((c) => c.id === picked.id);
+    const charIdx = this.roster.findIndex((c) => c.id === picked.id);
     const kitIdx = Math.floor(Math.random() * (picked.kits?.length || 1));
 
     if (slot === 0) {
@@ -2125,8 +2156,8 @@ export class SuperKickKingdomApp {
     this._closeAllModals();
     this.practice = null;
     const token = ++this.matchToken;
-    const ch0 = CHARACTERS[this.charIdx0];
-    const ch1 = CHARACTERS[this.charIdx1];
+    const ch0 = this.roster[this.charIdx0];
+    const ch1 = this.roster[this.charIdx1];
     const arena = ARENAS[this.arenaIdx] || ARENAS[0];
     let introTitle = '';
     let playersConfig = [];
@@ -2145,8 +2176,8 @@ export class SuperKickKingdomApp {
         { slot: 1, team: 1, tag: 'P2', charId: ch1.id, kitIdx: this.kitIdx1, isAI: false, role: 'striker' },
       ];
     } else if (this.selectedMode === '2v2') {
-      const ally = CHARACTERS[this.allyCharIdx] || CHARACTERS[1];
-      const foeAlly = CHARACTERS[this.foeAllyCharIdx] || CHARACTERS[(this.charIdx1 + 3) % CHARACTERS.length];
+      const ally = this.roster[this.allyCharIdx] || this.roster[1];
+      const foeAlly = this.roster[this.foeAllyCharIdx] || this.roster[(this.charIdx1 + 3) % this.roster.length];
       const fmt = this.twoVsTwoFormat || '4p';
 
       if (fmt === '4p') {
@@ -2193,8 +2224,8 @@ export class SuperKickKingdomApp {
     } else if (this.selectedMode === 'cup') {
       introTitle = this.cupIntroTitle;
       if (this.cupCoop) {
-        const ally = CHARACTERS[this.allyCharIdx] || CHARACTERS[1];
-        const wingIdx = (this.charIdx1 + 2) % CHARACTERS.length;
+        const ally = this.roster[this.allyCharIdx] || this.roster[1];
+        const wingIdx = (this.charIdx1 + 2) % this.roster.length;
         playersConfig = [
           { slot: 0, team: 0, tag: 'P1', charId: ch0.id, kitIdx: this.kitIdx0, isAI: false, role: 'striker' },
           {
@@ -2221,7 +2252,7 @@ export class SuperKickKingdomApp {
             slot: 3,
             team: 1,
             tag: 'CPU2',
-            charId: CHARACTERS[wingIdx].id,
+            charId: this.roster[wingIdx].id,
             kitIdx: 0,
             isAI: true,
             aiDifficulty: this.cupRoundAI,
@@ -2283,12 +2314,12 @@ export class SuperKickKingdomApp {
     } else if (this.selectedMode === 'trial' && this.activeTrial) {
       const trial = this.activeTrial;
       introTitle = `TRIAL #${trial.num}: ${trial.title.toUpperCase()}`;
-      const pChar = CHARACTERS.find((c) => c.id === trial.playerChar) || ch0;
+      const pChar = this.roster.find((c) => c.id === trial.playerChar) || ch0;
       playersConfig = [
         { slot: 0, team: 0, tag: 'P1', charId: pChar.id, kitIdx: 0, isAI: false, role: 'striker' },
       ];
       trial.opponents.forEach((opp, idx) => {
-        const oppChar = CHARACTERS.find((c) => c.id === opp.charId) || ch1;
+        const oppChar = this.roster.find((c) => c.id === opp.charId) || ch1;
         playersConfig.push({
           slot: idx + 1,
           team: opp.team ?? 1,
@@ -2582,13 +2613,13 @@ export class SuperKickKingdomApp {
           this.save.stats.cupsWon++;
           if (cup.unlocksChar && !this.save.unlockedChars.includes(cup.unlocksChar)) {
             this.save.unlockedChars.push(cup.unlocksChar);
-            const bossChar = CHARACTERS.find((c) => c.id === cup.unlocksChar);
+            const bossChar = this.roster.find((c) => c.id === cup.unlocksChar);
             if (bossChar) {
               this._pushToast(`BOSS UNLOCKED: ${bossChar.name}!`, `Conquered the ${cup.name}!`, '🔓');
             }
           }
           cupBanner.textContent = `🏆 ${cup.name.toUpperCase()} CONQUERED! 🏆`;
-          headline.textContent = `${CHARACTERS[this.charIdx0].name.toUpperCase()} IS CHAMPION!`;
+          headline.textContent = `${this.roster[this.charIdx0].name.toUpperCase()} IS CHAMPION!`;
         } else {
           cupBanner.textContent = `${cup.name.toUpperCase()} — ROUND ${this.cupRound + 1} VICTORY!`;
           headline.textContent = 'ADVANCING TO NEXT ROUND!';
@@ -2654,9 +2685,9 @@ export class SuperKickKingdomApp {
       coinsEarned = 20 + humanGoals * 4 + (humanTeamWon ? 20 : 0);
 
       if (summary.winnerTeam === 0) {
-        headline.textContent = `${CHARACTERS[this.charIdx0].name.toUpperCase()} WINS!`;
+        headline.textContent = `${this.roster[this.charIdx0].name.toUpperCase()} WINS!`;
       } else if (summary.winnerTeam === 1) {
-        headline.textContent = `${CHARACTERS[this.charIdx1].name.toUpperCase()} WINS!`;
+        headline.textContent = `${this.roster[this.charIdx1].name.toUpperCase()} WINS!`;
       } else {
         headline.textContent = 'EPIC DRAW!';
       }
@@ -3082,7 +3113,7 @@ export class SuperKickKingdomApp {
 
     const drawOne = (pctx, charIdx, kitIdx, facing, kickT) => {
       pctx.clearRect(0, 0, 260, 250);
-      const ch = getCharacter(CHARACTERS[charIdx].id, kitIdx);
+      const ch = getCharacter(this.roster[charIdx].id, kitIdx);
       const metrics = CHAR_SPRITE_METRICS[ch.id] || CHAR_SPRITE_METRICS.mario;
 
       const centerX = 130;

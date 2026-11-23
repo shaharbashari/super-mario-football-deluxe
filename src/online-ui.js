@@ -1,4 +1,4 @@
-import { CHARACTERS, ARENAS, getCharacter, isCharUnlocked } from './config.js';
+import { STANDARD_CHARACTERS, ARENAS, getCharacter, isCharUnlocked, rosterForSave } from './config.js';
 import { MatchSimulation } from './physics.js';
 import { AIController } from './ai.js';
 import { OnlineRoom } from './online.js';
@@ -117,13 +117,6 @@ export class OnlineController {
       this.room.setReady(!player.ready);
     }));
     this._element('online-start').addEventListener('click', () => this._run(() => this.room.start()));
-    this._element('online-char').replaceChildren(...CHARACTERS.map(character => {
-      const option = document.createElement('option');
-      option.value = character.id;
-      option.textContent = character.name;
-      option.disabled = !isCharUnlocked(this.app.save, character.id);
-      return option;
-    }));
     this._element('online-arena').replaceChildren(...ARENAS.filter(arena => !arena.isRandom).map(arena => {
       const option = document.createElement('option');
       option.value = arena.id;
@@ -148,6 +141,17 @@ export class OnlineController {
         hyperStrikes: this._element('online-hyper').checked,
       })));
     }
+  }
+
+  _updateRoster() {
+    const select = this._element('online-char');
+    const previous = select.value;
+    select.replaceChildren(...rosterForSave(this.app.save).map(character => {
+      const option = new Option(character.name, character.id);
+      option.disabled = !isCharUnlocked(this.app.save, character.id);
+      return option;
+    }));
+    if ([...select.options].some(option => option.value === previous && !option.disabled)) select.value = previous;
     this._updateKits();
   }
 
@@ -164,14 +168,17 @@ export class OnlineController {
   }
 
   _pick() {
+    const charId = this._element('online-char').value;
+    if (!isCharUnlocked(this.app.save, charId)) throw new Error('Choose an unlocked striker.');
     return {
       name: onlineName(this._element('online-name').value),
-      charId: this._element('online-char').value,
+      charId,
       kitIdx: Number(this._element('online-kit').value),
     };
   }
 
   open() {
+    this._updateRoster();
     this._render();
     this.app._openModal('modal-online');
     if (this.room.phase === 'idle') {
@@ -272,7 +279,7 @@ export class OnlineController {
         const member = players.find(player => player.slot === slot);
         return {
           slot, controlSlot: slot, team: slot % 2, tag: member ? `P${slot + 1}` : `CPU${slot + 1}`,
-          isAI: !member, charId: member?.charId || CHARACTERS[(slot + 1) % 6].id,
+          isAI: !member, charId: member?.charId || STANDARD_CHARACTERS[(slot + 1) % 6].id,
           kitIdx: member?.kitIdx || 0, role: slot >= 2 ? 'defender' : 'striker',
         };
       });

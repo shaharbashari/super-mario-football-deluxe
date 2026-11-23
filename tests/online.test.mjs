@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { MatchSimulation } from '../src/physics.js';
 import { AIController } from '../src/ai.js';
+import { characterFrame } from '../src/animation.js';
 import { ARENAS, ITEMS, DEFAULT_SETTINGS } from '../src/config.js';
 import { OnlineRoom } from '../src/online.js';
 import {
@@ -145,7 +146,47 @@ test('snapshot validation preserves items but rejects unsafe geometry and unknow
   const badCharacter = structuredClone(valid);
   badCharacter.players[0].charId = '<img>';
   assert.throws(() => validateOnlineState(badCharacter), /character/);
+  for (const facing of [0, 1.0001, 'left', undefined]) {
+    const badFacing = structuredClone(valid);
+    badFacing.players[0].facing = facing;
+    assert.throws(() => validateOnlineState(badFacing), /facing/);
+  }
   match.dispose();
+});
+
+test('guest sprites move and advance the run clip between snapshots, then turn before velocity reverses', () => {
+  const match = new MatchSimulation({ mode: 'online', arenaId: 'meadow', settings: DEFAULT_SETTINGS,
+    playersConfig: [{ charId: 'mario', team: 0 }, { charId: 'luigi', team: 1 }] });
+  match.phase = 'playing';
+  const encoder = new OnlineStateEncoder(), guest = new RemoteMatchView(ONLINE_DEFAULTS, DEFAULT_SETTINGS);
+  const advance = (frames, keys) => {
+    for (let i = 0; i < frames; i++) match.update(1 / 120, [{}, keys]);
+    const packet = encodeOnlinePacket('state', encoder.capture(match));
+    const state = validateOnlineState(decodeOnlinePacket(packet).data);
+    guest.receive(state);
+    return state.players[1];
+  };
+  try {
+    const start = advance(18, { right: true });
+    guest.update(.05);
+    const end = advance(6, { right: true });
+    guest.update(.025);
+    const mid = guest.players[1];
+    assert.ok(start.x < mid.x && mid.x < end.x);
+    assert.ok(start.animPhase < mid.animPhase && mid.animPhase < end.animPhase);
+    guest.update(.025);
+    assert.deepEqual(characterFrame(guest.players[1]), characterFrame(end));
+    assert.equal(characterFrame(end).row, 1);
+    assert.notEqual(characterFrame(start).col, characterFrame(end).col);
+    advance(1, { left: true });
+    guest.update(1 / 120);
+    assert.ok(guest.players[1].vx > 0, 'momentum is still to the right');
+    assert.equal(guest.players[1].facing, -1, 'facing follows the host, not velocity or interpolation');
+    advance(80, {});
+    guest.update(.05);
+    assert.equal(characterFrame(guest.players[1]).row, 0);
+    assert.equal(guest.players[1].facing, -1);
+  } finally { match.dispose(); }
 });
 
 test('room membership, ready gating and host-only rules synchronize', async () => {

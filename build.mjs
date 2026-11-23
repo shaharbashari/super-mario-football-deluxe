@@ -7,8 +7,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Script } from 'node:vm';
 import { createHash } from 'node:crypto';
+import { WEDDING_ART_READY, WEDDING_SQUAD } from './src/config.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
+if (WEDDING_ART_READY) {
+  for (const { id } of WEDDING_SQUAD) for (const prefix of ['char', 'portrait']) {
+    const asset = `assets/sprites/${prefix}_${id}.png`;
+    if (!fs.existsSync(path.join(root, asset))) throw new Error(`Wedding roster is enabled but ${asset} is missing.`);
+  }
+}
 const order = [
   'src/config.js',
   'src/audio.js',
