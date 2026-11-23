@@ -37,7 +37,7 @@ test('the wedding code unlocks six strikers with front portraits and animated ki
   await field.fill('wrong');
   await field.press('Enter');
   await expect(page.locator('#roster-code-status')).toContainText('not recognized');
-  await field.fill("LIVNE-GETTING-MARRIED'");
+  await field.fill('LIVNE-GETTING-MARRIED');
   await field.press('Enter');
   await expect(page.locator('#roster-code-status')).toContainText('Wedding squad unlocked');
   await page.keyboard.press('Escape');

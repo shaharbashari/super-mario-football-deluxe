@@ -39,7 +39,7 @@ async function ready(page) {
 test('real room-code 1v1 synchronizes input, pauses, results, rematches and disconnects', async ({ browser }, info) => {
   const errors = [];
   const host = await player(browser, 'Host', errors);
-  const guest = await player(browser, 'Guest', errors, 'livne', "LIVNE-GETTING-MARRIED'");
+  const guest = await player(browser, 'Guest', errors, 'livne', 'LIVNE-GETTING-MARRIED');
   try {
     await guest.page.locator('#online-kit').selectOption('1');
     await expect(host.page.locator('#online-char option[value="livne"]')).toHaveCount(0);

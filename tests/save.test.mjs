@@ -6,13 +6,13 @@ import { normalizeSaveData, normalizeSettings, loadSaveData, saveData, STORAGE_K
 test('wedding code is local, survives save recovery and is independent of coins and Party Unlock All', () => {
   const save = normalizeSaveData({ settings: { partyUnlockAll: true }, weddingSquadUnlocked: 'yes' });
   const before = structuredClone(save);
-  assert.equal(redeemRosterCode(save, 'LIVNE-GETTING-MARRIED'), 'invalid');
+  assert.equal(redeemRosterCode(save, "LIVNE-GETTING-MARRIED'"), 'invalid');
   assert.deepEqual(save, before);
   assert.ok(WEDDING_SQUAD.every(({ id }) => !isCharUnlocked(save, id)));
   assert.equal(rosterForSave(save).length, 12);
-  assert.equal(redeemRosterCode(save, "LIVNE-GETTING-MARRIED'"), 'unlocked');
+  assert.equal(redeemRosterCode(save, 'LIVNE-GETTING-MARRIED'), 'unlocked');
   const reloaded = normalizeSaveData(JSON.parse(JSON.stringify(save)));
-  assert.equal(redeemRosterCode(reloaded, "  livne-getting-married'  "), 'already-unlocked');
+  assert.equal(redeemRosterCode(reloaded, '  livne-getting-married  '), 'already-unlocked');
   assert.equal(reloaded.weddingSquadUnlocked, true);
   assert.deepEqual(reloaded.unlockedChars, before.unlockedChars);
   assert.equal(reloaded.coins, before.coins);

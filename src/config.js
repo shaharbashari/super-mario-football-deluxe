@@ -385,7 +385,7 @@ export function rosterForSave(save) {
 }
 
 export function redeemRosterCode(save, code) {
-  if (typeof code !== 'string' || code.trim().toUpperCase().replace(/’/g, "'") !== "LIVNE-GETTING-MARRIED'") return 'invalid';
+  if (typeof code !== 'string' || code.trim().toUpperCase() !== 'LIVNE-GETTING-MARRIED') return 'invalid';
   if (save.weddingSquadUnlocked) return 'already-unlocked';
   save.weddingSquadUnlocked = true;
   return 'unlocked';
