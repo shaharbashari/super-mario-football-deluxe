@@ -213,10 +213,10 @@ six recent character sheets, 192 recolored/silhouette frames and three
 terrain surfaces.
 
 The 12 regular strikers use a 128-unit on-field drawing baseline. The six wedding
-strikers use a 180-unit baseline and bobblehead proportions so their faces are
-readable from across the pitch. This is visual only: their collision boxes,
-stats and foot anchors are unchanged. Selection and podium previews keep their
-own sizes. Lakitu and the item
+strikers use a 275-unit baseline and oversized bobblehead proportions so their
+faces are easy to distinguish across the pitch. This is visual only: their
+collision boxes, stats and foot anchors are unchanged. Selection and podium
+previews keep their own sizes. Lakitu and the item
 bubble share layout dimensions with pickup detection and AI targeting; item
 icons fit their visible artwork instead of the atlas's transparent padding.
 

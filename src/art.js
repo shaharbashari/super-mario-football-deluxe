@@ -55,7 +55,7 @@ export const CHAR_SPRITE_METRICS = {
   king_boo: { drawSize: 184, footY: 0.880, airShiftY: 0 },
   bowser_jr: { drawSize: 144, footY: 0.968, airShiftY: 3 },
   ...Object.fromEntries(WEDDING_SQUAD.map(({ id }) => [id, {
-    drawSize: 172, fieldDrawSize: 180, footY: 0.968, airShiftY: 3, headPivot: 0.57, fieldArtRevision: 'bobble-1',
+    drawSize: 172, fieldDrawSize: 275, footY: 0.968, airShiftY: 3, headPivot: 0.63, fieldArtRevision: 'bobble-2',
   }])),
 };
 
@@ -1586,7 +1586,7 @@ export class ArtRenderer {
     if (player.shadowY !== undefined) {
       const dist = Math.max(0, player.shadowY - (player.y + player.halfH));
       const shScale = Math.max(0.24, 1 - dist / 650);
-      const shadowWidth = 48 * scale * shScale * fieldRatio;
+      const shadowWidth = 48 * scale * shScale * Math.min(fieldRatio, 1.35);
       ctx.save();
       const shGrad = ctx.createRadialGradient(
         player.x,
@@ -1639,16 +1639,18 @@ export class ArtRenderer {
     }
 
     // SuperStar Prism Invincibility Aura!
+    const fxCenterY = onField ? (52 - drawSize * 0.45) * scale : -6 * scale;
+    const fxScale = scale * Math.min(fieldRatio, 1.55);
     if (player.starTimer > 0) {
       const hue = Math.floor((time * 360) % 360);
-      const rAura = (78 + Math.sin(time * 28) * 9) * scale;
-      const sGrad = ctx.createRadialGradient(0, -6 * scale, 12, 0, -6 * scale, rAura);
+      const rAura = (78 + Math.sin(time * 28) * 9) * fxScale;
+      const sGrad = ctx.createRadialGradient(0, fxCenterY, 12, 0, fxCenterY, rAura);
       sGrad.addColorStop(0, `hsla(${hue}, 98%, 68%, 0.85)`);
       sGrad.addColorStop(0.55, `hsla(${(hue + 75) % 360}, 96%, 60%, 0.42)`);
       sGrad.addColorStop(1, `hsla(${(hue + 150) % 360}, 95%, 60%, 0)`);
       ctx.fillStyle = sGrad;
       ctx.beginPath();
-      ctx.arc(0, -6 * scale, rAura, 0, Math.PI * 2);
+      ctx.arc(0, fxCenterY, rAura, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -1656,24 +1658,24 @@ export class ArtRenderer {
     if (player.magnetTimer > 0) {
       for (let w = 0; w < 2; w++) {
         const phase = (time * 2.1 + w * 0.5) % 1;
-        const mRad = ((1 - phase) * 96 + 24) * scale;
+        const mRad = ((1 - phase) * 96 + 24) * fxScale;
         ctx.strokeStyle = `rgba(244, 63, 94, ${phase * 0.78})`;
         ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.arc(0, -4 * scale, mRad, 0, Math.PI * 2);
+        ctx.arc(0, fxCenterY, mRad, 0, Math.PI * 2);
         ctx.stroke();
       }
     }
 
     // Perfect Parry Golden Shock-Shield!
     if (player.parryFlashTimer > 0) {
-      const pRing = ctx.createRadialGradient(0, -4 * scale, 24 * scale, 0, -4 * scale, 76 * scale);
+      const pRing = ctx.createRadialGradient(0, fxCenterY, 24 * fxScale, 0, fxCenterY, 76 * fxScale);
       pRing.addColorStop(0, 'rgba(254, 240, 138, 0.08)');
       pRing.addColorStop(0.8, 'rgba(250, 204, 21, 0.75)');
       pRing.addColorStop(1, 'rgba(250, 204, 21, 0)');
       ctx.fillStyle = pRing;
       ctx.beginPath();
-      ctx.arc(0, -4 * scale, 76 * scale, 0, Math.PI * 2);
+      ctx.arc(0, fxCenterY, 76 * fxScale, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -1681,14 +1683,14 @@ export class ArtRenderer {
     if (player.chargeTime > 0.08 || player.hyperReady) {
       const cNorm = Math.min(1, (player.chargeTime || 0.25) / 0.55);
       const auraColor = player.hyperReady && player.chargeTime > 0.08 ? '#fde047' : ch.aura;
-      const auraR = (66 + cNorm * 30 + Math.sin(time * 32) * 6) * scale;
-      const grad = ctx.createRadialGradient(0, -6 * scale, 10, 0, -6 * scale, auraR);
+      const auraR = (66 + cNorm * 30 + Math.sin(time * 32) * 6) * fxScale;
+      const grad = ctx.createRadialGradient(0, fxCenterY, 10, 0, fxCenterY, auraR);
       grad.addColorStop(0, `${auraColor}aa`);
       grad.addColorStop(0.65, `${auraColor}44`);
       grad.addColorStop(1, `${auraColor}00`);
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.arc(0, -6 * scale, auraR, 0, Math.PI * 2);
+      ctx.arc(0, fxCenterY, auraR, 0, Math.PI * 2);
       ctx.fill();
 
       // Rising anime power-sparks around Hyper-Ready striker!
@@ -1696,8 +1698,8 @@ export class ArtRenderer {
         ctx.fillStyle = '#fef08a';
         for (let k = 0; k < 3; k++) {
           const ang = time * 5.5 + (k * Math.PI * 2) / 3;
-          const sxp = Math.cos(ang) * 44 * scale;
-          const syp = -10 * scale + Math.sin(ang * 1.7) * 34 * scale;
+          const sxp = Math.cos(ang) * 44 * fxScale;
+          const syp = fxCenterY + Math.sin(ang * 1.7) * 34 * fxScale;
           ctx.beginPath();
           ctx.arc(sxp, syp, 4.5 * scale, 0, Math.PI * 2);
           ctx.fill();

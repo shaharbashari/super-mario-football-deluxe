@@ -422,8 +422,8 @@ test('only wedding strikers are enlarged on the field, including ghosts and turf
   });
   for (const measurement of measurements) {
     if (measurement.wedding) {
-      expect(measurement.field, measurement.id).toBeGreaterThanOrEqual(128 * 1.35);
-      expect(measurement.field, measurement.id).toBeLessThanOrEqual(128 * 1.5);
+      expect(measurement.field, measurement.id).toBeGreaterThanOrEqual(240);
+      expect(measurement.field, measurement.id).toBeLessThanOrEqual(300);
       expect(measurement.preview, measurement.id).toBe(172);
     } else {
       expect(measurement.field, measurement.id).toBe(128);
