@@ -40,8 +40,7 @@ const BALL_SKIN_CELL_MAP = {
   bumper: 7,
 };
 
-// Pixel-calibrated standing scale & foot-sole anchor inside each 256x256 character sprite cell
-// Ensures every character's cleats kiss y = +52 (pitchFloorY) with zero floating or sinking!
+// drawSize is for previews; fieldDrawSize overrides the pitch baseline without changing physics.
 export const CHAR_SPRITE_METRICS = {
   mario: { drawSize: 164, footY: 0.968, airShiftY: 4 },
   luigi: { drawSize: 182, footY: 0.968, airShiftY: 4 },
@@ -55,8 +54,16 @@ export const CHAR_SPRITE_METRICS = {
   rosalina: { drawSize: 202, footY: 0.968, airShiftY: 3 },
   king_boo: { drawSize: 184, footY: 0.880, airShiftY: 0 },
   bowser_jr: { drawSize: 144, footY: 0.968, airShiftY: 3 },
-  ...Object.fromEntries(WEDDING_SQUAD.map(({ id }) => [id, { drawSize: 172, footY: 0.968, airShiftY: 3 }])),
+  ...Object.fromEntries(WEDDING_SQUAD.map(({ id }) => [id, {
+    drawSize: 172, fieldDrawSize: 180, footY: 0.968, airShiftY: 3, headPivot: 0.57, fieldArtRevision: 'bobble-1',
+  }])),
 };
+
+// Changing the pose layout must also invalidate the matching shirt overlay.
+function fieldSpriteUrl(key, ch) {
+  const revision = CHAR_SPRITE_METRICS[ch.id]?.fieldArtRevision;
+  return `./assets/sprites/${key}.png${revision ? `?v=${revision}` : ''}`;
+}
 
 // Alternate kit filters for the regular roster.
 const KIT_FILTER_SPECS = {
@@ -177,7 +184,7 @@ export class ArtRenderer {
     }
     const base = this.sprites[key];
     if (!base) {
-      this._requestImage(key, `./assets/sprites/${key}.png`, this.sprites);
+      this._requestImage(key, fieldSpriteUrl(key, ch), this.sprites);
       return null;
     }
     return base;
@@ -197,7 +204,7 @@ export class ArtRenderer {
     const overlayKey = !color && kit && ch.kitOverlay;
     const overlay = overlayKey && this.sprites[overlayKey];
     if (overlayKey && !overlay) {
-      this._requestImage(overlayKey, `./assets/sprites/${overlayKey}.png`, this.sprites);
+      this._requestImage(overlayKey, fieldSpriteUrl(overlayKey, ch), this.sprites);
       ctx.drawImage(sheet, col * cellW, row * cellH, cellW, cellH, x, y, width, height);
       return; // Do not cache a home frame under the away kit while the overlay is loading.
     }
@@ -790,9 +797,9 @@ export class ArtRenderer {
             ctx.translate(pl.x, pitchFloorY + 4 + dist * 0.22);
             ctx.scale(pl.facing * (pl.visualScale || 1) * pl.char.stats.size, -0.45 * (pl.visualScale || 1) * pl.char.stats.size);
             const { col, row } = this._selectCharFrameCoords(pl, time);
-            const footY = CHAR_SPRITE_METRICS[pl.char.id].footY;
-            this._drawCharFrame(ctx, pl.char, col, row, -FIELD_CHARACTER_DRAW_SIZE / 2,
-              -FIELD_CHARACTER_DRAW_SIZE * footY, FIELD_CHARACTER_DRAW_SIZE, FIELD_CHARACTER_DRAW_SIZE);
+            const { footY, fieldDrawSize = FIELD_CHARACTER_DRAW_SIZE } = CHAR_SPRITE_METRICS[pl.char.id];
+            this._drawCharFrame(ctx, pl.char, col, row, -fieldDrawSize / 2,
+              -fieldDrawSize * footY, fieldDrawSize, fieldDrawSize);
             ctx.restore();
           }
         }
@@ -1571,13 +1578,15 @@ export class ArtRenderer {
     const facing = player.facing || 1;
     const sheet = this._getCharSheet(ch);
     const metrics = CHAR_SPRITE_METRICS[ch.id] || CHAR_SPRITE_METRICS.mario;
-    const drawSize = onField ? FIELD_CHARACTER_DRAW_SIZE : metrics.drawSize;
+    const drawSize = onField ? (metrics.fieldDrawSize ?? FIELD_CHARACTER_DRAW_SIZE) : metrics.drawSize;
+    const fieldRatio = onField ? drawSize / FIELD_CHARACTER_DRAW_SIZE : 1;
     const { col, row } = this._selectCharFrameCoords(player, time);
 
     // 1. Soft Ground Contact Shadow
     if (player.shadowY !== undefined) {
       const dist = Math.max(0, player.shadowY - (player.y + player.halfH));
       const shScale = Math.max(0.24, 1 - dist / 650);
+      const shadowWidth = 48 * scale * shScale * fieldRatio;
       ctx.save();
       const shGrad = ctx.createRadialGradient(
         player.x,
@@ -1585,13 +1594,13 @@ export class ArtRenderer {
         4,
         player.x,
         player.shadowY + 2,
-        48 * scale * shScale
+        shadowWidth
       );
       shGrad.addColorStop(0, `rgba(8, 12, 24, ${0.46 * shScale})`);
       shGrad.addColorStop(1, 'rgba(8, 12, 24, 0)');
       ctx.fillStyle = shGrad;
       ctx.beginPath();
-      ctx.ellipse(player.x, player.shadowY + 2, 48 * scale * shScale, 12 * shScale, 0, 0, Math.PI * 2);
+      ctx.ellipse(player.x, player.shadowY + 2, shadowWidth, 12 * shScale, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
@@ -1754,17 +1763,18 @@ export class ArtRenderer {
       // Draw Crisp HD Cel-Shaded Character Sprite!
       this._drawCharFrame(ctx, ch, col, row, -dSz * 0.5, topY, dSz, dSz);
 
-      // Big Head Mutator: Hilarious 1.68x Bobble-Head Magnifier Pass!
+      // The optional Big Head mutator enlarges the head again, pivoting at the collar.
       if (player.bigHead) {
         ctx.save();
-        const headPivotY = topY + dSz * 0.44;
+        const headEnd = metrics.headPivot ?? 0.44;
+        const headPivotY = topY + dSz * headEnd;
         ctx.translate(0, headPivotY);
         ctx.rotate(Math.sin(time * 8) * 0.07);
         ctx.scale(1.66, 1.66);
         ctx.beginPath();
-        ctx.rect(-dSz * 0.55, -dSz * 0.48, dSz * 1.1, dSz * 0.50);
+        ctx.rect(-dSz * 0.55, -dSz * (headEnd + 0.04), dSz * 1.1, dSz * (headEnd + 0.06));
         ctx.clip();
-        this._drawCharFrame(ctx, ch, col, row, -dSz * 0.5, -dSz * 0.44, dSz, dSz);
+        this._drawCharFrame(ctx, ch, col, row, -dSz * 0.5, -dSz * headEnd, dSz, dSz);
         ctx.restore();
       }
 
@@ -1800,12 +1810,13 @@ export class ArtRenderer {
 
     // Extra Orbiting 3D Stars when Stunned
     if (isStunned) {
+      const starY = -68 - (fieldRatio - 1) * FIELD_CHARACTER_DRAW_SIZE;
       for (let s = 0; s < 3; s++) {
         const sa = time * 8.5 + (s * Math.PI * 2) / 3;
         ctx.fillStyle = '#fde047';
         ctx.strokeStyle = INK;
         ctx.lineWidth = 2.5;
-        this._drawStarShape(ctx, Math.cos(sa) * 28, -68 + Math.sin(sa) * 8, 5, 8, 3.8);
+        this._drawStarShape(ctx, Math.cos(sa) * 28, starY + Math.sin(sa) * 8, 5, 8, 3.8);
         ctx.fill();
         ctx.stroke();
       }
@@ -1846,7 +1857,7 @@ export class ArtRenderer {
 
     // Sleek Floating Player Indicator Pill above Head
     ctx.save();
-    const extraHeadH = player.bigHead ? 28 * scale : 0;
+    const extraHeadH = player.bigHead ? (metrics.headPivot ? drawSize * metrics.headPivot * 0.66 : 28) * scale : 0;
     const tagY = player.y + (52 - drawSize * metrics.footY) * scale - 18 - extraHeadH;
     ctx.fillStyle = 'rgba(12, 18, 36, 0.84)';
     ctx.strokeStyle = player.hyperReady ? '#fde047' : player.teamColor || ch.primary;

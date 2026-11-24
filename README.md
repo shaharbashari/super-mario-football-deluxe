@@ -212,9 +212,11 @@ The renderer derives cell size from the image and bounds its caches:
 six recent character sheets, 192 recolored/silhouette frames and three
 terrain surfaces.
 
-On-field strikers use a shared 128-unit drawing baseline, with character stats
-providing relative size rather than scaling large characters twice. Selection
-and podium previews retain their larger presentation. Lakitu and the item
+The 12 regular strikers use a 128-unit on-field drawing baseline. The six wedding
+strikers use a 180-unit baseline and bobblehead proportions so their faces are
+readable from across the pitch. This is visual only: their collision boxes,
+stats and foot anchors are unchanged. Selection and podium previews keep their
+own sizes. Lakitu and the item
 bubble share layout dimensions with pickup detection and AI targeting; item
 icons fit their visible artwork instead of the atlas's transparent padding.
 

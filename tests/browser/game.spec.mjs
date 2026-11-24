@@ -88,12 +88,16 @@ test('the wedding code unlocks six strikers with front portraits and animated ki
       app.art._drawCharFrame(ctx, getCharacter('dani', kit), 0, 0, 0, 0, 128, 128);
       return ctx.getImageData(0, 0, 128, 128).data;
     });
+    const firstPixel = frames[0].findIndex((value, i) => i % 4 === 3 && value >= 128);
+    const lastPixel = frames[0].findLastIndex((value, i) => i % 4 === 3 && value >= 128);
+    // On a bobblehead, the entire upper half of the visible figure is above the jersey.
+    const halfwayRow = (Math.floor(firstPixel / 512) + Math.floor(lastPixel / 512)) / 2;
     return [[0, 1], [0, 2], [1, 2]].map(([a, b]) => {
       let face = 0, uniform = 0;
       for (let i = 0; i < frames[a].length; i += 4) {
         if (frames[a][i + 3] < 128 || Math.abs(frames[a][i] - frames[b][i]) +
           Math.abs(frames[a][i + 1] - frames[b][i + 1]) < 20) continue;
-        if (i < 50 * 128 * 4) face++; else uniform++;
+        if (Math.floor(i / 512) < halfwayRow) face++; else uniform++;
       }
       return { face, uniform };
     });
@@ -379,30 +383,36 @@ test('all stadiums, characters, kits and moving entities render with bounded cac
   await page.screenshot({ path: info.outputPath('stadium.png') });
 });
 
-test('field proportions shrink the roster without shrinking previews or their foot anchors', async ({ page }, info) => {
+test('only wedding strikers are enlarged on the field, including ghosts and turf reflections', async ({ page }, info) => {
   await boot(page);
   await start(page);
   const measurements = await page.evaluate(async () => {
-    const { CHARACTERS } = await import('/src/config.js');
+    const { CHARACTERS, WEDDING_SQUAD, getArena } = await import('/src/config.js');
     const { CHAR_SPRITE_METRICS } = await import('/src/art.js');
     const art = app.art;
     const originalSheet = art._getCharSheet;
     const originalFrame = art._drawCharFrame;
     const records = [];
+    const glacier = getArena('glacier');
     try {
       art._getCharSheet = () => ({});
       for (const character of CHARACTERS) {
         const player = { ...app.match.players[0], char: character, onGround: true,
           vx: 0, vy: 0, visualScale: 1, squashX: 1, squashY: 1,
-          chargeTime: 0, hyperReady: false, dashGhosts: [], kickTimer: 0, stunTimer: 0 };
+          chargeTime: 0, hyperReady: false, dashGhosts: [{ x: 500, y: 800, alpha: 0.6 }], kickTimer: 0, stunTimer: 0 };
         const calls = [];
         art._drawCharFrame = (ctx, ch, col, row, x, y, width, height) => calls.push({ y, width, height });
         art.drawCharacterPuppet(app.ctx, player, [], 0, { onField: true });
-        const field = calls.at(-1);
+        const [ghost, field] = calls;
         art.drawCharacterPuppet(app.ctx, player, [], 0);
         const preview = calls.at(-1);
-        records.push({ id: character.id, field: field.width, preview: preview.width,
-          foot: field.y + field.height * CHAR_SPRITE_METRICS[character.id].footY });
+        calls.length = 0;
+        art.drawArenaForeground(app.ctx, glacier, { ...app.match, players: [player], balls: [] }, 0);
+        const [reflection] = calls;
+        const { footY } = CHAR_SPRITE_METRICS[character.id];
+        records.push({ id: character.id, wedding: WEDDING_SQUAD.includes(character),
+          field: field.width, preview: preview.width, ghost: ghost.width, reflected: reflection.width,
+          foot: field.y + field.height * footY, reflectedFoot: reflection.y + reflection.height * footY });
       }
     } finally {
       art._getCharSheet = originalSheet;
@@ -411,9 +421,18 @@ test('field proportions shrink the roster without shrinking previews or their fo
     return records;
   });
   for (const measurement of measurements) {
-    expect(measurement.field, measurement.id).toBe(128);
-    expect(measurement.field, measurement.id).toBeLessThan(measurement.preview);
+    if (measurement.wedding) {
+      expect(measurement.field, measurement.id).toBeGreaterThanOrEqual(128 * 1.35);
+      expect(measurement.field, measurement.id).toBeLessThanOrEqual(128 * 1.5);
+      expect(measurement.preview, measurement.id).toBe(172);
+    } else {
+      expect(measurement.field, measurement.id).toBe(128);
+      expect(measurement.field, measurement.id).toBeLessThan(measurement.preview);
+    }
+    expect(measurement.ghost, measurement.id).toBe(measurement.field);
+    expect(measurement.reflected, measurement.id).toBe(measurement.field);
     expect(measurement.foot, measurement.id).toBeCloseTo(52);
+    expect(measurement.reflectedFoot, measurement.id).toBeCloseTo(0);
   }
   await page.evaluate(() => {
     app.charIdx1 = 5;
