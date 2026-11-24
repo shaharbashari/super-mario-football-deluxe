@@ -55,7 +55,7 @@ export const CHAR_SPRITE_METRICS = {
   king_boo: { drawSize: 184, footY: 0.880, airShiftY: 0 },
   bowser_jr: { drawSize: 144, footY: 0.968, airShiftY: 3 },
   ...Object.fromEntries(WEDDING_SQUAD.map(({ id }) => [id, {
-    drawSize: 172, fieldDrawSize: 275, footY: 0.968, airShiftY: 3, headPivot: 0.63, fieldArtRevision: 'bobble-2',
+    drawSize: 172, fieldDrawSize: 235, footY: 0.968, airShiftY: 3, headPivot: 0.56, fieldArtRevision: 'bobble-3',
   }])),
 };
 

@@ -213,7 +213,7 @@ six recent character sheets, 192 recolored/silhouette frames and three
 terrain surfaces.
 
 The 12 regular strikers use a 128-unit on-field drawing baseline. The six wedding
-strikers use a 275-unit baseline and oversized bobblehead proportions so their
+strikers use a 235-unit baseline and balanced bobblehead proportions so their
 faces are easy to distinguish across the pitch. This is visual only: their
 collision boxes, stats and foot anchors are unchanged. Selection and podium
 previews keep their own sizes. Lakitu and the item
